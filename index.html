@@ -552,11 +552,15 @@ function parseCSVText(text) {
   }
   if (headerIdx === -1) return { error: 'ヘッダ行（日付）が見つかりません', rows: [], errors: [] };
 
-  const idxDate  = headers.findIndex(h => h.includes('日付'));
-  const idxClose = headers.findIndex(h => h.includes('終値'));
-  const idxVol   = headers.findIndex(h => h.includes('出来高'));
-  const idxBuy   = headers.findIndex(h => h.includes('信用買残'));
-  const idxSell  = headers.findIndex(h => h.includes('信用売残'));
+  const idxDate   = headers.findIndex(h => h.includes('日付'));
+  const idxClose  = headers.findIndex(h => h.includes('終値'));
+  const idxVol    = headers.findIndex(h => h.includes('出来高'));
+  // 信用倍率 — 列名を複数パターンで検出（楽天証券CSV: 融資残高/貸株残高/貸借倍率）
+  const idxBuy    = headers.findIndex(h => h.includes('信用買残'));
+  const idxSell   = headers.findIndex(h => h.includes('信用売残'));
+  const idxFuushi = headers.findIndex(h => h.includes('融資残高'));  // 楽天: 信用買残相当
+  const idxKashi  = headers.findIndex(h => h.includes('貸株残高'));  // 楽天: 信用売残相当
+  const idxRatio  = headers.findIndex(h => h.includes('貸借倍率'));  // 楽天: 倍率直接値
 
   if (idxDate < 0 || idxClose < 0) {
     return { error: '必須列（日付・終値）が見つかりません', rows: [], errors: [] };
@@ -581,16 +585,30 @@ function parseCSVText(text) {
       continue;
     }
     const row = { date, close };
-    // 信用残 — 空でも行を捨てない（タイムラグ考慮: 最新の有効値を後で採用）
+    // 信用倍率 — 空でも行を捨てない（タイムラグ考慮: 最新の有効値を後で採用）
+    // 優先順位: 信用買残/売残 → 融資残高/貸株残高(計算) → 貸借倍率(直接値)
+    let creditRatioVal = null;
     if (idxBuy >= 0 && idxSell >= 0) {
       const buy = parseNum(cols[idxBuy] || '');
       const sell = parseNum(cols[idxSell] || '');
       if (!isNaN(buy) && !isNaN(sell) && buy > 0 && sell > 0) {
-        row.creditBuy = buy;
-        row.creditSell = sell;
-        row.creditRatio = buy / sell;
+        row.creditBuy = buy; row.creditSell = sell;
+        creditRatioVal = buy / sell;
       }
     }
+    if (creditRatioVal == null && idxFuushi >= 0 && idxKashi >= 0) {
+      const fuushi = parseNum(cols[idxFuushi] || '');
+      const kashi  = parseNum(cols[idxKashi]  || '');
+      if (!isNaN(fuushi) && !isNaN(kashi) && fuushi > 0 && kashi > 0) {
+        row.creditBuy = fuushi; row.creditSell = kashi;
+        creditRatioVal = fuushi / kashi;
+      }
+    }
+    if (creditRatioVal == null && idxRatio >= 0) {
+      const ratio = parseNum(cols[idxRatio] || '');
+      if (!isNaN(ratio) && ratio > 0) creditRatioVal = ratio;
+    }
+    if (creditRatioVal != null) row.creditRatio = creditRatioVal;
     rows.push(row);
   }
 
@@ -1488,7 +1506,15 @@ function runTests() {
   assert('CSV 信用倍率計算', approxEq(rows[0].creditRatio, 100000/80000, 0.01));
   assert('CSV 日付正規化', rows[0].date === '2026-06-01');
 
-  // --- Test 10: LocalStorage 保存・復元・52週FIFO ---
+  // --- Test 10: 楽天CSV列名（融資残高/貸株残高/貸借倍率）対応 ---
+  const rakutenCSV = `銘柄コード:8035\n銘柄名:東京エレクトロン\n日付,終値,出来高,貸株残高,融資残高,貸借倍率\n2026/06/01,24200,1234567,80000,100000,1.25\n`;
+  const rResult = parseCSVText(rakutenCSV);
+  assert('楽天CSV 融資/貸株→信用倍率計算', !rResult.error && rResult.rows.length === 1 && approxEq(rResult.rows[0].creditRatio, 100000/80000, 0.01));
+  const rakutenCSV2 = `日付,終値,貸借倍率\n2026/06/01,24200,1.25\n`;
+  const rResult2 = parseCSVText(rakutenCSV2);
+  assert('楽天CSV 貸借倍率のみ→直接採用', rResult2.rows.length === 1 && approxEq(rResult2.rows[0].creditRatio, 1.25, 0.01));
+
+  // --- Test 11: LocalStorage 保存・復元・52週FIFO ---
   const testKey = 'rotation_v3_weeks';
   const origWeeks = lsGet(testKey);
   // 52週+1を書いてFIFO確認
