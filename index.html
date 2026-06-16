@@ -1145,7 +1145,6 @@ async function processCSVFile(file) {
   const previewEl = document.getElementById('csv-preview');
   statusEl.textContent = '解析中...';
   previewEl.innerHTML = '';
-  _csvIndicators = {};
   _csvErrors = [];
 
   try {
@@ -1210,7 +1209,8 @@ async function processCSVFile(file) {
       previewHTML += `<ul class="csv-error-list">${errors.map(e => `<li>行${e.line}: ${e.reason}</li>`).join('')}</ul>`;
     }
     previewEl.innerHTML = previewHTML;
-    statusEl.textContent = `${file.name}`;
+    const loadedCount = Object.keys(_csvIndicators).length;
+    statusEl.textContent = `${file.name} (計${loadedCount}銘柄読み込み済み)`;
 
     // 入力欄を再描画してCSV値を反映
     renderTickerAdjustments();
