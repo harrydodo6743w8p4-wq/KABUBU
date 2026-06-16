@@ -371,6 +371,17 @@ function calcCreditChange(cur, prev) {
   return parseFloat(((cur / prev - 1) * 100).toFixed(2));
 }
 
+/** 決算予定日(YYYY-MM-DD)から今日(ローカル日付基準)までの残り日数 — 過去日はnull */
+function calcDaysToEarnings(dateStr) {
+  if (!dateStr) return null;
+  const today = new Date();
+  const todayMs = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+  const d = new Date(dateStr + 'T00:00:00');
+  const targetMs = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const diff = Math.round((targetMs - todayMs) / 86400000);
+  return diff >= 0 ? diff : null;
+}
+
 /**
  * テーマスコア (0–100)
  * @param {string} toggle '熱狂'|'流入'|'中立'|'流出'
@@ -683,7 +694,10 @@ function showLsError() {
 
 function getWeeks() { return lsGet(CONFIG.LS_WEEKS) || {}; }
 function getMeta()  { return lsGet(CONFIG.LS_META)  || {}; }
-function getSettings() { return lsGet(CONFIG.LS_SETTINGS) || { userAcquiredPrices: {} }; }
+function getSettings() {
+  const s = lsGet(CONFIG.LS_SETTINGS) || {};
+  return { userAcquiredPrices: {}, earningsDates: {}, ...s };
+}
 
 /** 保存済み週IDを昇順で返す */
 function getSortedWeekIds() {
@@ -1089,16 +1103,19 @@ function renderTickerAdjustments() {
   const prevWeek = ids.length ? weeks[ids[ids.length - 1]] : null;
   // サンプルデータのみの初回状態ではプリフィルせず据置をデフォルトにする
   const effectivePrev = getMeta().enteredBy === 'sample' ? null : prevWeek;
+  const settings = getSettings();
 
   const html = Object.entries(CONFIG.TICKERS).map(([code, info]) => {
     const prevTd = effectivePrev?.tickers?.[code] || {};
     const csvInd = _csvIndicators[code];
     const consensus = csvInd?.consensus || prevTd.consensus || '据置';
-    const dte = prevTd.daysToEarnings ?? '';
 
-    // 前週比表示
-    const prevDte = prevTd.daysToEarnings;
-    const dteDiff = (dte !== '' && prevDte != null) ? ` (前週:${prevDte})` : '';
+    // 決算予定日をsettingsから取得し残り日数を自動計算
+    const earningsDateVal = settings.earningsDates?.[code] || '';
+    const daysToEarningsComputed = earningsDateVal ? calcDaysToEarnings(earningsDateVal) : null;
+    const dteDisplay = earningsDateVal
+      ? (daysToEarningsComputed === null ? '決算済（次回日程を更新）' : `残り ${daysToEarningsComputed}日`)
+      : '—';
 
     const consBtns = CONFIG.CONSENSUS_OPTIONS.map(opt => {
       const isActive = opt === consensus;
@@ -1116,13 +1133,13 @@ function renderTickerAdjustments() {
       <div style="font-size:11px;color:var(--text2);margin-bottom:6px">RSI: ${rsiStr} | 乖離: ${dispStr} | 信用変化: ${credStr}</div>
       <div style="font-size:12px;color:var(--text2);margin-bottom:4px">コンセンサス:</div>
       <div class="toggle-group" style="margin-bottom:8px">${consBtns}</div>
-      <div style="display:flex;align-items:center;gap:8px">
-        <span style="font-size:12px;color:var(--text2)">決算まで(日):</span>
-        <input type="number" class="form-input" style="width:80px" min="0" max="365"
-          data-code="${code}" data-dte="1"
-          placeholder="日数" value="${dte}"
-          oninput="updateSaveBtn()">
-        <span style="font-size:11px;color:var(--text2)">${dteDiff}</span>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <span style="font-size:12px;color:var(--text2)">決算予定日:</span>
+        <input type="date" class="form-input" style="width:150px"
+          data-code="${code}" data-earnings-date="1"
+          value="${earningsDateVal}"
+          onchange="saveEarningsDate('${code}', this.value)">
+        <span style="font-size:11px;color:var(--text2)" data-dte-display="${code}">${dteDisplay}</span>
       </div>
     </div>`;
   }).join('');
@@ -1132,6 +1149,20 @@ function renderTickerAdjustments() {
   // 前週のメモをプリフィル（サンプルデータのみ時はクリア）
   const prevMemo = effectivePrev?.memo || '';
   document.getElementById('input-memo').value = prevMemo;
+}
+
+function saveEarningsDate(code, val) {
+  const settings = getSettings();
+  if (!val) delete settings.earningsDates[code];
+  else settings.earningsDates[code] = val;
+  saveSettings(settings);
+  const days = val ? calcDaysToEarnings(val) : null;
+  const display = val
+    ? (days === null ? '決算済（次回日程を更新）' : `残り ${days}日`)
+    : '—';
+  const span = document.querySelector(`span[data-dte-display="${code}"]`);
+  if (span) span.textContent = display;
+  updateSaveBtn();
 }
 
 function selectConsensus(btn) {
@@ -1290,14 +1321,14 @@ function saveWeekData() {
   });
 
   // 銘柄データ収集
+  const savedSettings = getSettings();
   const tickers = {};
   Object.keys(CONFIG.TICKERS).forEach(code => {
     const activeCons = document.querySelector(`.toggle-btn.active[data-code="${code}"][data-cons]`);
-    const dteInput = document.querySelector(`input[data-code="${code}"][data-dte]`);
     const ind = _csvIndicators[code] || {};
     tickers[code] = {
       consensus: activeCons?.dataset.cons || '据置',
-      daysToEarnings: dteInput?.value ? Number(dteInput.value) : null,
+      daysToEarnings: calcDaysToEarnings(savedSettings.earningsDates?.[code] ?? null),
       close: ind.close ?? null,
       rsi: ind.rsi ?? null,
       rsiOk: ind.rsiOk ?? false,
@@ -1580,6 +1611,17 @@ function runTests() {
   assert('52週FIFO: 件数<=52', Object.keys(afterFIFO).length <= CONFIG.HISTORY_MAX_WEEKS);
   // 復元
   if (origWeeks) lsSet(testKey, origWeeks); else try { localStorage.removeItem(testKey); } catch(_) {}
+
+  // --- Test 12: calcDaysToEarnings ---
+  const _today = new Date();
+  const _fmt = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  const _future10 = new Date(_today); _future10.setDate(_today.getDate() + 10);
+  const _past1    = new Date(_today); _past1.setDate(_today.getDate() - 1);
+  assert('calcDaysToEarnings 10日後→10',   calcDaysToEarnings(_fmt(_future10)) === 10);
+  assert('calcDaysToEarnings 今日→0',       calcDaysToEarnings(_fmt(_today))    === 0);
+  assert('calcDaysToEarnings 昨日→null',    calcDaysToEarnings(_fmt(_past1))    === null);
+  assert('calcDaysToEarnings null→null',    calcDaysToEarnings(null)            === null);
+  assert('calcDaysToEarnings 空文字→null',  calcDaysToEarnings('')              === null);
 
   // --- 結果表示 ---
   const pass = results.filter(r => r.pass).length;
