@@ -226,9 +226,9 @@ textarea.form-input{width:100%;height:56px;resize:none;text-align:left}
          ondragover="event.preventDefault();this.classList.add('dragover')"
          ondragleave="this.classList.remove('dragover')"
          ondrop="handleFileDrop(event)">
-      <input type="file" id="csv-file" accept=".csv" onchange="handleFileSelect(event)">
+      <input type="file" id="csv-file" accept=".csv" multiple onchange="handleFileSelect(event)">
       <div style="font-size:28px">📂</div>
-      <p>タップまたはドラッグ＆ドロップ<br>楽天証券 日足CSV（Shift_JIS対応）</p>
+      <p>タップまたはドラッグ＆ドロップ（複数ファイル一括投入可）<br>楽天証券 日足CSV（Shift_JIS対応）</p>
     </div>
     <div id="csv-status" style="margin-top:8px;font-size:13px;color:var(--text2)"></div>
     <div id="csv-preview"></div>
@@ -1209,94 +1209,105 @@ function updateSaveBtn() {
 function handleFileDrop(e) {
   e.preventDefault();
   document.getElementById('drop-zone').classList.remove('dragover');
-  const file = e.dataTransfer?.files?.[0];
-  if (file) processCSVFile(file);
+  const files = e.dataTransfer?.files;
+  if (files?.length) processCSVFiles(files);
 }
 
 function handleFileSelect(e) {
-  const file = e.target.files?.[0];
-  if (file) processCSVFile(file);
+  const files = e.target.files;
+  if (files?.length) processCSVFiles(files);
+  e.target.value = '';
 }
 
-async function processCSVFile(file) {
+async function processCSVFiles(fileList) {
   const statusEl = document.getElementById('csv-status');
   const previewEl = document.getElementById('csv-preview');
-  statusEl.textContent = '解析中...';
+  const files = Array.from(fileList).filter(f => f.name.toLowerCase().endsWith('.csv'));
+  if (!files.length) return;
+
+  statusEl.textContent = `解析中... (0/${files.length})`;
   previewEl.innerHTML = '';
-  _csvErrors = [];
 
-  try {
-    const buf = await readFileBuffer(file);
-    const text = decodeBuffer(buf);
-    const { rows, errors, error } = parseCSVText(text);
+  const fileErrors = [];  // [{name, errors:[{line,reason}]}]
+  const fatalErrors = []; // [{name, message}]
+  let processedCount = 0;
 
-    if (error) {
-      statusEl.innerHTML = `<span style="color:var(--red)">エラー: ${error}</span>`;
-      document.getElementById('save-btn').disabled = true;
-      return;
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i];
+    statusEl.textContent = `解析中... (${i + 1}/${files.length})`;
+
+    try {
+      const buf = await readFileBuffer(file);
+      const text = decodeBuffer(buf);
+      const { rows, errors, error } = parseCSVText(text);
+
+      if (error) { fatalErrors.push({ name: file.name, message: error }); continue; }
+      if (rows.length === 0) { fatalErrors.push({ name: file.name, message: 'データ行が見つかりません' }); continue; }
+
+      if (errors.length > 0) fileErrors.push({ name: file.name, errors });
+
+      const latestDate = rows[rows.length - 1].date;
+      _currentWeekId = getWeekId(latestDate);
+      const prevWkId = getPrevWeekId(_currentWeekId);
+      const prevWeek = prevWkId ? getWeeks()[prevWkId] : null;
+
+      const detectedCode = detectCodeFromFileName(file.name);
+      if (detectedCode && CONFIG.TICKERS[detectedCode]) {
+        const prevCreditRatio = prevWeek?.tickers?.[detectedCode]?.creditRatio ?? null;
+        _csvIndicators[detectedCode] = computeIndicators(rows, prevCreditRatio);
+      } else {
+        Object.keys(CONFIG.TICKERS).forEach(code => {
+          const prevCreditRatio = prevWeek?.tickers?.[code]?.creditRatio ?? null;
+          _csvIndicators[code] = computeIndicators(rows, prevCreditRatio);
+        });
+      }
+      processedCount++;
+    } catch(ex) {
+      fatalErrors.push({ name: file.name, message: ex.message });
     }
-
-    _csvErrors = errors;
-    if (rows.length === 0) {
-      statusEl.innerHTML = '<span style="color:var(--red)">データ行が見つかりません</span>';
-      return;
-    }
-
-    // weekIdを決定して前週の信用倍率を取得
-    const latestDate = rows[rows.length - 1].date;
-    _currentWeekId = getWeekId(latestDate);
-    const prevWkId = getPrevWeekId(_currentWeekId);
-    const prevWeek = prevWkId ? getWeeks()[prevWkId] : null;
-
-    // 銘柄コードを検出してマッチング
-    // 楽天CSVは1銘柄1ファイルが基本。銘柄コードをファイル名から推測
-    const detectedCode = detectCodeFromFileName(file.name);
-
-    if (detectedCode && CONFIG.TICKERS[detectedCode]) {
-      const prevCreditRatio = prevWeek?.tickers?.[detectedCode]?.creditRatio ?? null;
-      const ind = computeIndicators(rows, prevCreditRatio);
-      _csvIndicators[detectedCode] = ind;
-    } else {
-      // 全銘柄として処理（コードが不明な場合）
-      Object.keys(CONFIG.TICKERS).forEach(code => {
-        const prevCreditRatio = prevWeek?.tickers?.[code]?.creditRatio ?? null;
-        const ind = computeIndicators(rows, prevCreditRatio);
-        _csvIndicators[code] = ind;
-      });
-    }
-
-    // プレビュー表示
-    const codes = Object.keys(_csvIndicators);
-    let previewHTML = `<div style="margin-top:8px;font-size:12px;color:var(--green)">解析完了: ${rows.length}行 (週ID: ${_currentWeekId})</div>`;
-    previewHTML += `<table class="csv-preview-table"><thead><tr>
-      <th>銘柄</th><th>終値</th><th>RSI</th><th>乖離%</th><th>信用倍率</th><th>信用変化%</th>
-    </tr></thead><tbody>`;
-    codes.forEach(code => {
-      const ind = _csvIndicators[code];
-      previewHTML += `<tr>
-        <td>${CONFIG.TICKERS[code]?.name || code}</td>
-        <td>${ind.close != null ? fmtNum(ind.close) : '—'}</td>
-        <td>${ind.rsiOk ? fmt(ind.rsi) : '—'}</td>
-        <td>${ind.ma75Ok ? fmt(ind.ma75Disparity) : '—'}</td>
-        <td>${ind.creditRatio != null ? fmt(ind.creditRatio, 2) : '—'}</td>
-        <td>${ind.creditRatioWeekChange != null ? fmt(ind.creditRatioWeekChange) : '—'}</td>
-      </tr>`;
-    });
-    previewHTML += '</tbody></table>';
-
-    if (errors.length > 0) {
-      previewHTML += `<ul class="csv-error-list">${errors.map(e => `<li>行${e.line}: ${e.reason}</li>`).join('')}</ul>`;
-    }
-    previewEl.innerHTML = previewHTML;
-    const loadedCount = Object.keys(_csvIndicators).length;
-    statusEl.textContent = `${file.name} (計${loadedCount}銘柄読み込み済み)`;
-
-    // 入力欄を再描画してCSV値を反映
-    renderTickerAdjustments();
-    updateSaveBtn();
-  } catch(e) {
-    statusEl.innerHTML = `<span style="color:var(--red)">読み込みエラー: ${e.message}</span>`;
   }
+
+  // プレビュー表示
+  const codes = Object.keys(_csvIndicators);
+  const loadedCount = codes.length;
+  let previewHTML = `<div style="margin-top:8px;font-size:12px;color:var(--green)">解析完了: ${processedCount}/${files.length}ファイル (週ID: ${_currentWeekId || '—'})</div>`;
+  previewHTML += `<table class="csv-preview-table"><thead><tr>
+    <th>銘柄</th><th>終値</th><th>RSI</th><th>乖離%</th><th>信用倍率</th><th>信用変化%</th>
+  </tr></thead><tbody>`;
+  codes.forEach(code => {
+    const ind = _csvIndicators[code];
+    previewHTML += `<tr>
+      <td>${CONFIG.TICKERS[code]?.name || code}</td>
+      <td>${ind.close != null ? fmtNum(ind.close) : '—'}</td>
+      <td>${ind.rsiOk ? fmt(ind.rsi) : '—'}</td>
+      <td>${ind.ma75Ok ? fmt(ind.ma75Disparity) : '—'}</td>
+      <td>${ind.creditRatio != null ? fmt(ind.creditRatio, 2) : '—'}</td>
+      <td>${ind.creditRatioWeekChange != null ? fmt(ind.creditRatioWeekChange) : '—'}</td>
+    </tr>`;
+  });
+  previewHTML += '</tbody></table>';
+
+  if (fileErrors.length > 0) {
+    fileErrors.forEach(fe => {
+      previewHTML += `<div style="margin-top:4px;font-size:12px;font-weight:600;color:var(--text2)">${fe.name}</div>`;
+      previewHTML += `<ul class="csv-error-list">${fe.errors.map(e => `<li>行${e.line}: ${e.reason}</li>`).join('')}</ul>`;
+    });
+  }
+  if (fatalErrors.length > 0) {
+    previewHTML += `<ul class="csv-error-list">${fatalErrors.map(fe => `<li>${fe.name}: ${fe.message}</li>`).join('')}</ul>`;
+  }
+  previewEl.innerHTML = previewHTML;
+
+  const fileLabel = files.length === 1 ? files[0].name : `${files.length}ファイル`;
+  const statusText = `${fileLabel} (計${loadedCount}銘柄読み込み済み)`;
+  if (fatalErrors.length > 0) {
+    statusEl.innerHTML = statusText + ` <span style="color:var(--red)">エラー: ${fatalErrors.length}ファイル</span>`;
+  } else {
+    statusEl.textContent = statusText;
+  }
+
+  renderTickerAdjustments();
+  updateSaveBtn();
 }
 
 function detectCodeFromFileName(name) {
