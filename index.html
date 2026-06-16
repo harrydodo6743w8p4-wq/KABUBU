@@ -97,6 +97,7 @@ body{padding-bottom:env(safe-area-inset-bottom)}
 .ticker-score{font-size:22px;font-weight:800;line-height:1;margin:8px 0 4px}
 .ticker-metrics{font-size:11px;color:var(--text2);line-height:1.6}
 .ticker-reason{font-size:11px;color:var(--red);margin-top:6px;line-height:1.4}
+.ticker-comment{font-size:11px;color:var(--text2);margin-top:6px;line-height:1.6;font-style:italic}
 .ticker-alert-section{margin-bottom:12px}
 .ticker-alert-section .card-title{color:var(--red)}
 
@@ -461,6 +462,58 @@ function buildRedReason(code, themeId, rsi, ma75Disparity) {
   if (rsi != null && rsi < 45) parts.push(`RSI${Math.round(rsi)} の売られすぎ`);
   if (ma75Disparity != null && ma75Disparity < -5) parts.push(`75日線 ${ma75Disparity.toFixed(1)}% 乖離`);
   return '買い理由: ' + parts.join(' ＆ ');
+}
+
+function generateLadyComment(t) {
+  const rsi  = (t.td.rsiOk  !== false && t.td.rsi  != null) ? t.td.rsi  : null;
+  const disp = (t.td.ma75Ok !== false && t.td.ma75Disparity != null) ? t.td.ma75Disparity : null;
+  const cred = (t.td.creditOk !== false && t.td.creditRatioWeekChange != null) ? t.td.creditRatioWeekChange : null;
+  const dte  = t.td.daysToEarnings; // null=未設定、数値=残り日数
+
+  const rF = rsi  != null ? fmt(rsi)  : null;
+  const dF = disp != null ? (disp >= 0 ? '+' : '') + fmt(disp) + '%' : null;
+
+  // Part1: RSI・乖離による状況判断
+  let p1;
+  if (rsi != null && disp != null) {
+    if (rsi >= 75 && disp >= 20) {
+      p1 = `あらあら、RSIは${rF}、75日線から${dF}も離れておりますわ。のぼせ上がっておられるご様子、高値づかみにはご用心あそばせ`;
+    } else if (rsi >= 70 || disp >= 15) {
+      p1 = `RSI${rF}に乖離${dF}と、少々過熱気味でございますわ。ご用心あそばせ`;
+    } else if (rsi < 35 && disp < -15) {
+      p1 = `RSI${rF}に乖離${dF}……ずいぶん売り込まれておりますわね。テーマに資金が向けば見直される余地もございますことよ`;
+    } else if (rsi < 35 || disp < -10) {
+      p1 = `RSI${rF}、乖離${dF}と売られすぎの域に入っておりますわ`;
+    } else if (rsi < 45 && disp < -5) {
+      p1 = `RSI${rF}、乖離${dF}とやや出遅れ気味でございますわ`;
+    } else {
+      p1 = `RSI${rF}、75日線乖離${dF}と、いずれも中庸の域でございますわ`;
+    }
+  } else if (rsi != null) {
+    if (rsi >= 70)  p1 = `RSI${rF}と、かなり過熱感がございますわ。高値づかみにはご用心あそばせ`;
+    else if (rsi < 35) p1 = `RSI${rF}と売られすぎの域に入っておりますわ`;
+    else            p1 = `RSI${rF}と中程度の水準でございますわ`;
+  } else if (disp != null) {
+    if (disp >= 15)  p1 = `75日線から${dF}と、かなり乖離しておりますわ。ご用心あそばせ`;
+    else if (disp < -10) p1 = `75日線から${dF}と、大きく売り込まれておりますわね`;
+    else             p1 = `75日線乖離は${dF}でございますわ`;
+  } else {
+    p1 = `数値データはまだ揃っていないご様子ですわ`;
+  }
+
+  // Part2: 決算・信用（最急のもの1件）
+  let p2 = '';
+  if (dte != null && dte <= 7) {
+    p2 = `もうすぐ決算発表のお時間ですわ。数字次第で大きく振れますゆえ、お覚悟なさいませ`;
+  } else if (dte != null && dte <= 14) {
+    p2 = `決算まで残り${dte}日、そろそろお時間が迫ってまいりましたわ`;
+  } else if (cred != null && cred <= -10) {
+    p2 = `信用の倍率も整理が進んでおりますわね。需給は軽くなりつつあるご様子`;
+  } else if (cred != null && cred >= 10) {
+    p2 = `信用倍率が上昇しておりますわ。需給面では少々重さが感じられますことよ`;
+  }
+
+  return p1 + (p2 ? '　' + p2 : '');
 }
 
 /** 週ID: CSV最新日が属する週の金曜日 (YYYY-MM-DD)
@@ -942,6 +995,7 @@ function tickerCardHTML(t) {
       RSI <b>${rsiStr}</b> | 乖離 <b>${dispStr}%</b><br>
       信用変化 <b>${credStr}</b> | 決算 <b>${dteStr}</b>
     </div>
+    <div class="ticker-comment">${generateLadyComment(t)}</div>
     ${reason}
   </div>`;
 }
@@ -1637,6 +1691,26 @@ function runTests() {
   assert('calcDaysToEarnings 昨日→null',    calcDaysToEarnings(_fmt(_past1))    === null);
   assert('calcDaysToEarnings null→null',    calcDaysToEarnings(null)            === null);
   assert('calcDaysToEarnings 空文字→null',  calcDaysToEarnings('')              === null);
+
+  // --- Test 13: generateLadyComment ---
+  function mkTd(rsi, rsiOk, disp, ma75Ok, cred, creditOk, dte) {
+    return { td: { rsi, rsiOk, ma75Disparity: disp, ma75Ok, creditRatioWeekChange: cred, creditOk, daysToEarnings: dte }, themeScore: 50 };
+  }
+  // 過熱(RSI>=75 かつ 乖離>=20%) → 「ご用心」を含む
+  const cOverheat = generateLadyComment(mkTd(80, true, 22, true, null, true, null));
+  assert('コメント 過熱→ご用心', cOverheat.includes('ご用心'), cOverheat);
+  // 売られすぎ(RSI<35 かつ 乖離<-15%) → 「売り込まれ」を含む
+  const cOversold = generateLadyComment(mkTd(28, true, -18, true, null, true, null));
+  assert('コメント 売られすぎ→売り込まれ', cOversold.includes('売り込まれ'), cOversold);
+  // 決算直前(dte=5) → 「お覚悟」を含む
+  const cEarnings = generateLadyComment(mkTd(50, true, -2, true, null, true, 5));
+  assert('コメント 決算直前(5日)→お覚悟', cEarnings.includes('お覚悟'), cEarnings);
+  // 信用整理(cred=-15) → 「整理」を含む
+  const cCredit = generateLadyComment(mkTd(50, true, -2, true, -15, true, null));
+  assert('コメント 信用整理→整理', cCredit.includes('整理'), cCredit);
+  // データなし → クラッシュせず文字列を返す
+  const cNoData = generateLadyComment(mkTd(null, undefined, null, undefined, null, undefined, null));
+  assert('コメント データなし→文字列返却', typeof cNoData === 'string' && cNoData.length > 0, cNoData);
 
   // --- 結果表示 ---
   const pass = results.filter(r => r.pass).length;
