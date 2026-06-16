@@ -1,0 +1,1819 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<!--
+==========================================================================
+RotationFollow_v3 — 週次ローテーション追従ダッシュボード
+==========================================================================
+README:
+  テーマ/銘柄変更: CONFIG.THEMES / CONFIG.TICKERS を編集
+  文字コード: Shift_JIS(CP932) を TextDecoder('shift_jis') でデコード
+              BOM付きUTF-8 は自動検出してフォールバック
+  テスト実行: URL に ?test=1 を付けてアクセス
+  Chart実装: 末尾 <script id="chartjs-vendor"> にCanvas描画をインライン同梱
+==========================================================================
+-->
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>RotationFollow v3</title>
+<style>
+:root {
+  --bg: #0d1117;
+  --bg2: #161b22;
+  --bg3: #21262d;
+  --border: #30363d;
+  --text: #e6edf3;
+  --text2: #8b949e;
+  --red: #ff4444;
+  --yellow: #e6a817;
+  --blue: #4488ff;
+  --purple: #a855f7;
+  --green: #3fb950;
+  --white: #555b63;
+  --radius: 10px;
+  --tap: 44px;
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:15px;line-height:1.5}
+body{padding-bottom:env(safe-area-inset-bottom)}
+
+/* NAV */
+.nav{display:flex;background:var(--bg2);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:100;padding-top:env(safe-area-inset-top)}
+.nav-btn{flex:1;padding:12px 8px;text-align:center;font-size:13px;font-weight:600;color:var(--text2);border:none;background:none;cursor:pointer;min-height:var(--tap)}
+.nav-btn.active{color:var(--text);border-bottom:2px solid var(--blue)}
+
+/* SCREENS */
+.screen{display:none;padding:12px;padding-bottom:calc(env(safe-area-inset-bottom) + 16px)}
+.screen.active{display:block}
+
+/* CARDS */
+.card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:14px;margin-bottom:12px}
+.card-title{font-size:12px;font-weight:700;text-transform:uppercase;color:var(--text2);letter-spacing:.05em;margin-bottom:10px}
+
+/* MEMO BANNER */
+.memo-banner{background:var(--bg3);border-left:3px solid var(--blue);border-radius:0 var(--radius) var(--radius) 0;padding:10px 14px;margin-bottom:12px;font-size:13px;color:var(--text2)}
+.memo-banner strong{color:var(--text);display:block;font-size:11px;margin-bottom:2px}
+
+/* THEME ROWS */
+.theme-row{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);cursor:pointer;min-height:var(--tap)}
+.theme-row:last-child{border-bottom:none}
+.theme-badge{font-size:11px;font-weight:700;padding:3px 7px;border-radius:12px;white-space:nowrap;min-width:36px;text-align:center}
+.badge-enthu{background:#ff4444;color:#fff}
+.badge-inflow{background:#e6a817;color:#000}
+.badge-neutral{background:#555b63;color:#fff}
+.badge-outflow{background:#4488ff;color:#fff}
+.theme-name{flex:1;font-size:14px;font-weight:600}
+.theme-meta{font-size:11px;color:var(--text2);text-align:right;line-height:1.4}
+.theme-leading{font-size:11px;color:var(--blue);margin-left:4px}
+.delta-pos{color:var(--green)}
+.delta-neg{color:var(--red)}
+.delta-zero{color:var(--text2)}
+
+/* THEME BAR */
+.theme-bar-wrap{height:10px;background:var(--bg3);border-radius:5px;overflow:hidden;flex:1;min-width:60px}
+.theme-bar-fill{height:100%;border-radius:5px;transition:width .3s}
+
+/* TICKER CARDS */
+.ticker-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media(min-width:480px){.ticker-grid{grid-template-columns:repeat(3,1fr)}}
+.ticker-card{background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:12px;cursor:pointer;transition:border-color .15s}
+.ticker-card:active{opacity:.8}
+.ticker-card.sig-red{border-color:var(--red);border-width:2px}
+.ticker-card.sig-yellow{border-color:var(--yellow)}
+.ticker-card.sig-blue{border-color:var(--blue)}
+.ticker-card.sig-purple{border-color:var(--purple)}
+.ticker-sig{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;padding:3px 8px;border-radius:12px;margin-bottom:8px}
+.sig-red .ticker-sig{background:rgba(255,68,68,.15);color:var(--red)}
+.sig-yellow .ticker-sig{background:rgba(230,168,23,.15);color:var(--yellow)}
+.sig-blue .ticker-sig{background:rgba(68,136,255,.15);color:var(--blue)}
+.sig-purple .ticker-sig{background:rgba(168,85,247,.15);color:var(--purple)}
+.sig-white .ticker-sig{background:var(--bg2);color:var(--text2)}
+.ticker-name{font-size:13px;font-weight:700;margin-bottom:2px}
+.ticker-code{font-size:11px;color:var(--text2)}
+.ticker-score{font-size:22px;font-weight:800;line-height:1;margin:8px 0 4px}
+.ticker-metrics{font-size:11px;color:var(--text2);line-height:1.6}
+.ticker-reason{font-size:11px;color:var(--red);margin-top:6px;line-height:1.4}
+.ticker-alert-section{margin-bottom:12px}
+.ticker-alert-section .card-title{color:var(--red)}
+
+/* MODAL */
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:200;overflow-y:auto;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+.modal-overlay.open{display:flex;align-items:flex-start;justify-content:center}
+.modal{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);width:100%;max-width:520px;margin:16px;padding:16px}
+.modal-header{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:14px}
+.modal-title{font-size:16px;font-weight:700}
+.modal-close{background:none;border:none;color:var(--text2);font-size:24px;cursor:pointer;line-height:1;padding:0 4px;min-width:var(--tap);min-height:var(--tap);display:flex;align-items:center;justify-content:flex-end}
+.modal-metrics{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px}
+.metric-box{background:var(--bg3);border-radius:8px;padding:10px;text-align:center}
+.metric-box label{display:block;font-size:10px;color:var(--text2);margin-bottom:2px}
+.metric-box value{display:block;font-size:18px;font-weight:700}
+.chart-wrap{position:relative;height:160px;margin-bottom:14px}
+canvas.chart-canvas{width:100%!important;height:160px!important}
+.modal-memo{background:var(--bg3);border-left:3px solid var(--blue);padding:8px 12px;border-radius:0 8px 8px 0;font-size:12px;color:var(--text2);margin-top:10px}
+
+/* INPUT SCREEN */
+.step-header{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+.step-num{background:var(--blue);color:#fff;font-size:12px;font-weight:700;width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.step-title{font-size:15px;font-weight:700}
+
+/* DROP ZONE */
+.drop-zone{border:2px dashed var(--border);border-radius:var(--radius);padding:32px 16px;text-align:center;cursor:pointer;transition:border-color .2s;min-height:var(--tap)}
+.drop-zone:hover,.drop-zone.dragover{border-color:var(--blue)}
+.drop-zone p{color:var(--text2);font-size:13px;margin-top:8px}
+.drop-zone input[type=file]{display:none}
+
+/* TOGGLE GROUPS */
+.toggle-group{display:flex;gap:4px;flex-wrap:wrap}
+.toggle-btn{padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg3);color:var(--text2);font-size:12px;font-weight:600;cursor:pointer;min-height:var(--tap);transition:all .15s}
+.toggle-btn.active{background:var(--blue);color:#fff;border-color:var(--blue)}
+.toggle-btn.active.enthu{background:var(--red);border-color:var(--red)}
+.toggle-btn.active.inflow{background:var(--yellow);border-color:var(--yellow);color:#000}
+.toggle-btn.active.neutral{background:var(--white);border-color:var(--white)}
+.toggle-btn.active.outflow{background:var(--blue);border-color:var(--blue)}
+.toggle-btn.active.cons-up{background:var(--green);border-color:var(--green);color:#000}
+.toggle-btn.active.cons-hold{background:var(--white);border-color:var(--white)}
+.toggle-btn.active.cons-down{background:var(--purple);border-color:var(--purple)}
+
+/* FORM ELEMENTS */
+.form-row{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border)}
+.form-row:last-child{border-bottom:none}
+.form-label{flex:1;font-size:13px;font-weight:600}
+.form-sub{font-size:11px;color:var(--text2)}
+.form-input{background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:8px 10px;font-size:14px;width:90px;text-align:right;min-height:var(--tap)}
+.form-input:focus{outline:none;border-color:var(--blue)}
+.leading-input{width:120px}
+textarea.form-input{width:100%;height:56px;resize:none;text-align:left}
+
+/* CSV PREVIEW */
+.csv-preview-table{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}
+.csv-preview-table th,.csv-preview-table td{padding:6px 8px;border:1px solid var(--border);text-align:right}
+.csv-preview-table th{background:var(--bg3);color:var(--text2);font-weight:600}
+.csv-preview-table td:first-child{text-align:left}
+.csv-error-list{margin-top:8px;font-size:12px;color:var(--red)}
+.csv-error-list li{padding:2px 0}
+
+/* BTN */
+.btn{display:flex;align-items:center;justify-content:center;padding:14px 20px;border-radius:var(--radius);font-size:15px;font-weight:700;cursor:pointer;border:none;min-height:var(--tap);transition:opacity .15s}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn-primary{background:var(--blue);color:#fff;width:100%}
+.btn-export{background:var(--bg3);color:var(--text2);border:1px solid var(--border);font-size:13px;padding:10px 16px}
+.btn-row{display:flex;gap:8px;margin-top:12px}
+
+/* TEST PANEL */
+#test-panel{padding:16px;padding-top:calc(env(safe-area-inset-top) + 16px)}
+.test-result{font-family:monospace;font-size:13px;padding:4px 0;border-bottom:1px solid var(--border)}
+.test-pass{color:var(--green)}
+.test-fail{color:var(--red)}
+.test-summary{margin-top:12px;font-size:15px;font-weight:700}
+
+/* UTIL */
+.tag{display:inline-block;font-size:10px;padding:2px 6px;border-radius:6px;background:var(--bg3);color:var(--text2);margin-left:4px}
+.empty-state{text-align:center;padding:32px 16px;color:var(--text2);font-size:14px}
+.divider{height:1px;background:var(--border);margin:12px 0}
+.section-label{font-size:12px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.06em;margin:16px 0 8px}
+</style>
+</head>
+<body>
+
+<nav class="nav" id="nav">
+  <button class="nav-btn active" onclick="navigate('dashboard')" id="nav-dashboard">ダッシュボード</button>
+  <button class="nav-btn" onclick="navigate('input')" id="nav-input">データ入力</button>
+</nav>
+
+<!-- SCREEN: DASHBOARD -->
+<div class="screen active" id="screen-dashboard">
+  <div class="memo-banner" id="memo-banner" style="display:none">
+    <strong>今週のシナリオメモ</strong>
+    <span id="memo-text"></span>
+  </div>
+
+  <div class="card">
+    <div class="card-title">テーマモメンタム <span class="tag">Δスコア順</span></div>
+    <div id="theme-ranking"></div>
+  </div>
+
+  <div class="ticker-alert-section" id="alert-section" style="display:none">
+    <div class="card-title" style="margin-bottom:8px">要注意 🔵🟣</div>
+    <div class="ticker-grid" id="alert-grid"></div>
+  </div>
+
+  <div id="ticker-sections"></div>
+
+  <div class="btn-row">
+    <button class="btn btn-export" onclick="exportData()">JSONエクスポート</button>
+    <button class="btn btn-export" onclick="clearData()" style="color:var(--red)">データリセット</button>
+  </div>
+
+  <div class="empty-state" id="empty-state" style="display:none">
+    <p style="font-size:32px;margin-bottom:8px">📊</p>
+    <p>データがありません</p>
+    <p style="margin-top:4px;font-size:13px">「データ入力」からCSVを読み込んでください</p>
+  </div>
+</div>
+
+<!-- SCREEN: DATA INPUT -->
+<div class="screen" id="screen-input">
+
+  <!-- Step 1: CSV -->
+  <div class="card">
+    <div class="step-header"><div class="step-num">1</div><div class="step-title">CSVを読み込む</div></div>
+    <div class="drop-zone" id="drop-zone" onclick="document.getElementById('csv-file').click()"
+         ondragover="event.preventDefault();this.classList.add('dragover')"
+         ondragleave="this.classList.remove('dragover')"
+         ondrop="handleFileDrop(event)">
+      <input type="file" id="csv-file" accept=".csv" onchange="handleFileSelect(event)">
+      <div style="font-size:28px">📂</div>
+      <p>タップまたはドラッグ＆ドロップ<br>楽天証券 日足CSV（Shift_JIS対応）</p>
+    </div>
+    <div id="csv-status" style="margin-top:8px;font-size:13px;color:var(--text2)"></div>
+    <div id="csv-preview"></div>
+  </div>
+
+  <!-- Step 2: Theme toggles -->
+  <div class="card">
+    <div class="step-header"><div class="step-num">2</div><div class="step-title">テーマ判定</div></div>
+    <div id="theme-toggles"></div>
+  </div>
+
+  <!-- Step 3: Ticker adjustments + memo + save -->
+  <div class="card">
+    <div class="step-header"><div class="step-num">3</div><div class="step-title">銘柄補正・保存</div></div>
+    <div id="ticker-adjustments"></div>
+    <div class="divider"></div>
+    <div class="form-row" style="flex-direction:column;align-items:flex-start;gap:6px">
+      <div class="form-label">今週のシナリオメモ</div>
+      <textarea class="form-input" id="input-memo" placeholder="例: FOMCを前に様子見。SOX調整中で半導体は打診買い水準。"></textarea>
+    </div>
+    <div class="divider"></div>
+    <button class="btn btn-primary" id="save-btn" onclick="saveWeekData()" disabled>保存する</button>
+    <div id="save-status" style="margin-top:8px;font-size:13px;text-align:center"></div>
+  </div>
+
+  <!-- Settings: acquired prices -->
+  <div class="card">
+    <div class="card-title">取得価格設定（撤退シグナル用）</div>
+    <div id="acquired-prices"></div>
+  </div>
+</div>
+
+<!-- MODAL: Ticker detail -->
+<div class="modal-overlay" id="modal-overlay" onclick="closeModal(event)">
+  <div class="modal" id="modal">
+    <div class="modal-header">
+      <div>
+        <div class="modal-title" id="modal-title"></div>
+        <div style="font-size:12px;color:var(--text2);margin-top:2px" id="modal-subtitle"></div>
+      </div>
+      <button class="modal-close" onclick="closeModal()">×</button>
+    </div>
+    <div class="modal-metrics" id="modal-metrics"></div>
+    <div class="chart-wrap"><canvas id="modal-chart" class="chart-canvas"></canvas></div>
+    <div class="modal-memo" id="modal-memo" style="display:none"></div>
+  </div>
+</div>
+
+<!-- TEST PANEL (shown only with ?test=1) -->
+<div id="test-panel" style="display:none"></div>
+
+<script>
+'use strict';
+// ============================================================
+// CONFIG — ここを編集してテーマ・銘柄・定数を変更
+// ============================================================
+const CONFIG = {
+  RSI_PERIOD: 14,
+  MA_PERIOD: 75,
+  HISTORY_MAX_WEEKS: 52,
+  SCHEMA_VERSION: 3,
+  LS_META: 'rotation_v3_meta',
+  LS_WEEKS: 'rotation_v3_weeks',
+  LS_SETTINGS: 'rotation_v3_settings',
+  THEMES: [
+    { id: 'ai_semi',    name: 'AI・半導体',          leadingLabel: 'SOX',         tickers: ['8035','6525','9984'] },
+    { id: 'ai_infra',   name: 'AIインフラ・電力再建', leadingLabel: '電力株指数',   tickers: ['5803','5801'] },
+    { id: 'finance',    name: '金利正常化・金融',     leadingLabel: '10年債利回り', tickers: ['8306'] },
+    { id: 'defense',    name: '国策・防衛・宇宙',     leadingLabel: '防衛予算',     tickers: ['7011'] },
+    { id: 'entertain',  name: 'エンタメ・製品サイクル', leadingLabel: 'ゲーム市場指数', tickers: ['7974'] },
+  ],
+  TICKERS: {
+    '8035': { name: '東京エレクトロン', theme: 'ai_semi' },
+    '6525': { name: 'KOKUSAI',         theme: 'ai_semi' },
+    '9984': { name: 'ソフトバンクG',   theme: 'ai_semi' },
+    '5803': { name: 'フジクラ',        theme: 'ai_infra' },
+    '5801': { name: '古河電工',        theme: 'ai_infra' },
+    '8306': { name: '三菱UFJ',         theme: 'finance' },
+    '7011': { name: '三菱重工',        theme: 'defense' },
+    '7974': { name: '任天堂',          theme: 'entertain' },
+  },
+  TOGGLE_OPTIONS: ['熱狂','流入','中立','流出'],
+  CONSENSUS_OPTIONS: ['上方修正','据置','下方修正'],
+  SIGNAL_ORDER: ['purple','blue','red','yellow','white'],
+  SIGNAL_META: {
+    purple: { emoji:'🟣', label:'撤退',  cls:'sig-purple' },
+    blue:   { emoji:'🔵', label:'過熱',  cls:'sig-blue'   },
+    red:    { emoji:'🔴', label:'買い場', cls:'sig-red'   },
+    yellow: { emoji:'🟡', label:'打診',  cls:'sig-yellow' },
+    white:  { emoji:'⬜', label:'静観',  cls:'sig-white'  },
+  },
+};
+
+// ============================================================
+// Module 1: 純粋関数 (副作用なし・テスト可能)
+// ============================================================
+
+/** Wilder RSI — period=14, min bars=period+1 */
+function calcRSI(closes, period = CONFIG.RSI_PERIOD) {
+  if (!closes || closes.length < period + 1) return null;
+  // 差分リスト
+  const diffs = [];
+  for (let i = 1; i < closes.length; i++) diffs.push(closes[i] - closes[i - 1]);
+  // 最初のperiod本で初期平均を計算
+  let avgGain = 0, avgLoss = 0;
+  for (let i = 0; i < period; i++) {
+    if (diffs[i] > 0) avgGain += diffs[i];
+    else avgLoss += Math.abs(diffs[i]);
+  }
+  avgGain /= period;
+  avgLoss /= period;
+  // Wilder平滑化
+  for (let i = period; i < diffs.length; i++) {
+    const g = diffs[i] > 0 ? diffs[i] : 0;
+    const l = diffs[i] < 0 ? Math.abs(diffs[i]) : 0;
+    avgGain = (avgGain * (period - 1) + g) / period;
+    avgLoss = (avgLoss * (period - 1) + l) / period;
+  }
+  if (avgLoss === 0) return 100;
+  const rs = avgGain / avgLoss;
+  return parseFloat((100 - 100 / (1 + rs)).toFixed(2));
+}
+
+/** SMA(n) of closes — min bars=n */
+function calcSMA(closes, n) {
+  if (!closes || closes.length < n) return null;
+  const slice = closes.slice(-n);
+  return slice.reduce((a, b) => a + b, 0) / n;
+}
+
+/** 75日線乖離率 (%) */
+function calcDisparity(close, ma) {
+  if (ma == null || ma === 0) return null;
+  return parseFloat(((close / ma - 1) * 100).toFixed(2));
+}
+
+/** 信用倍率週次変化率 (%) */
+function calcCreditChange(cur, prev) {
+  if (cur == null || prev == null || prev === 0) return null;
+  return parseFloat(((cur / prev - 1) * 100).toFixed(2));
+}
+
+/**
+ * テーマスコア (0–100)
+ * @param {string} toggle '熱狂'|'流入'|'中立'|'流出'
+ * @param {string[]} consensusItems 所属銘柄のコンセンサス配列 '上方修正'|'据置'|'下方修正'
+ */
+function calcThemeScore(toggle, consensusItems) {
+  const baseMap = { '熱狂': 80, '流入': 60, '中立': 40, '流出': 0 };
+  const base = baseMap[toggle] ?? 40;
+  const scoreMap = { '上方修正': 20, '据置': 10, '下方修正': 0 };
+  let bonus = 0;
+  if (consensusItems && consensusItems.length > 0) {
+    bonus = consensusItems.reduce((s, c) => s + (scoreMap[c] ?? 10), 0) / consensusItems.length;
+  }
+  return Math.min(100, Math.round(base + bonus));
+}
+
+/**
+ * 銘柄個別スコア (0–100)
+ * @param {{ rsi, ma75Disparity, creditRatioWeekChange, daysToEarnings }} m
+ */
+function calcTickerScore(m) {
+  let rsiScore = 0;
+  if (m.rsi != null) {
+    if (m.rsi < 35) rsiScore = 30;
+    else if (m.rsi < 45) rsiScore = 20;
+    else if (m.rsi < 55) rsiScore = 10;
+  }
+  let dispScore = 0;
+  if (m.ma75Disparity != null) {
+    if (m.ma75Disparity < -15) dispScore = 30;
+    else if (m.ma75Disparity < -5) dispScore = 20;
+    else if (m.ma75Disparity < 0) dispScore = 10;
+  }
+  let creditScore = 0;
+  if (m.creditRatioWeekChange != null) {
+    if (m.creditRatioWeekChange <= -10) creditScore = 15;
+    else if (m.creditRatioWeekChange < 10) creditScore = 5;
+  }
+  let earningsScore = 0;
+  const dte = m.daysToEarnings;
+  if (dte != null) {
+    if (dte >= 15) earningsScore = 25;
+    else if (dte >= 8) earningsScore = 10;
+    // <=7: 0 + 直前リスク
+  }
+  let finalScore = rsiScore + dispScore + creditScore + earningsScore;
+  if (dte != null && dte <= 7) finalScore -= 20;
+  return Math.max(0, Math.min(100, finalScore));
+}
+
+/**
+ * シグナル判定 (優先順位: purple > blue > red > yellow > white)
+ * @param {{ tickerScore, themeScore, rsi, ma75Disparity, consensus, acquiredPrice, currentClose }} ctx
+ */
+function classifySignal(ctx) {
+  const { tickerScore, themeScore, rsi, ma75Disparity, consensus, acquiredPrice, currentClose } = ctx;
+  // 1. Purple: 下方修正 OR 損益 <= -12%
+  if (consensus === '下方修正') return 'purple';
+  if (acquiredPrice != null && currentClose != null && acquiredPrice > 0) {
+    if ((currentClose / acquiredPrice - 1) * 100 <= -12) return 'purple';
+  }
+  // 2. Blue: RSI >= 75 AND 乖離 >= +20%
+  if (rsi != null && rsi >= 75 && ma75Disparity != null && ma75Disparity >= 20) return 'blue';
+  // 3. Red: theme >= 70 AND ticker >= 75 AND consensus != 下方修正
+  if (themeScore >= 70 && tickerScore >= 75 && consensus !== '下方修正') return 'red';
+  // 4. Yellow: theme >= 60 AND 65 <= ticker <= 74
+  if (themeScore >= 60 && tickerScore >= 65 && tickerScore <= 74) return 'yellow';
+  return 'white';
+}
+
+/** 理由テキスト自動生成 (red シグナル用) */
+function buildRedReason(code, themeId, rsi, ma75Disparity) {
+  const themeName = CONFIG.THEMES.find(t => t.id === themeId)?.name || themeId;
+  const parts = [];
+  parts.push(`[${themeName}] に資金流入中`);
+  if (rsi != null && rsi < 45) parts.push(`RSI${Math.round(rsi)} の売られすぎ`);
+  if (ma75Disparity != null && ma75Disparity < -5) parts.push(`75日線 ${ma75Disparity.toFixed(1)}% 乖離`);
+  return '買い理由: ' + parts.join(' ＆ ');
+}
+
+/** 週ID: CSV最新日が属する週の金曜日 (YYYY-MM-DD)
+ *  注意: toISOString() は UTC 変換されるため JST(+9) 環境では日付がズレる。
+ *  getFullYear/getMonth/getDate でローカル日付を組み立てる。
+ */
+function getWeekId(dateStr) {
+  const d = new Date(dateStr + 'T00:00:00'); // ローカル時刻として解釈
+  const day = d.getDay(); // 0=Sun, 1=Mon, ..., 5=Fri, 6=Sat
+  const friday = new Date(d);
+  if (day === 6)      friday.setDate(d.getDate() - 1);      // Sat → 前Fri
+  else if (day === 0) friday.setDate(d.getDate() - 2);      // Sun → 前Fri
+  else                friday.setDate(d.getDate() + (5 - day)); // Mon-Fri → 当週Fri
+  // ローカル日付で文字列化（toISOString はUTC変換でJST環境では1日ズレる）
+  const y  = friday.getFullYear();
+  const m  = String(friday.getMonth() + 1).padStart(2, '0');
+  const dd = String(friday.getDate()).padStart(2, '0');
+  return `${y}-${m}-${dd}`;
+}
+
+/** 数値フォーマット */
+function fmt(v, dec = 1) {
+  if (v == null || isNaN(v)) return '—';
+  return v.toFixed(dec);
+}
+function fmtNum(v) {
+  if (v == null || isNaN(v)) return '—';
+  return v.toLocaleString('ja-JP');
+}
+
+// ============================================================
+// Module 2: CSVパーサ (楽天日足 Shift_JIS 対応)
+// ============================================================
+
+async function readFileBuffer(file) {
+  return new Promise((res, rej) => {
+    const fr = new FileReader();
+    fr.onload = e => res(e.target.result);
+    fr.onerror = rej;
+    fr.readAsArrayBuffer(file);
+  });
+}
+
+function decodeBuffer(buf) {
+  const bytes = new Uint8Array(buf);
+  // BOM付きUTF-8 (EF BB BF)
+  if (bytes[0] === 0xEF && bytes[1] === 0xBB && bytes[2] === 0xBF) {
+    return new TextDecoder('utf-8').decode(buf);
+  }
+  // Shift_JIS (CP932) を試みる
+  try {
+    return new TextDecoder('shift_jis').decode(buf);
+  } catch (_) {
+    return new TextDecoder('utf-8').decode(buf);
+  }
+}
+
+/** CSV1行をフィールド配列に分割 (ダブルクォート対応) */
+function splitCSVLine(line) {
+  const result = [];
+  let inQ = false, field = '';
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (c === '"') { inQ = !inQ; }
+    else if (c === ',' && !inQ) { result.push(field.trim()); field = ''; }
+    else { field += c; }
+  }
+  result.push(field.trim());
+  return result;
+}
+
+/** 日付文字列を YYYY-MM-DD に正規化 */
+function normalizeDate(s) {
+  const m = s.replace(/\s/g, '').match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
+  if (!m) return null;
+  return `${m[1]}-${m[2].padStart(2,'0')}-${m[3].padStart(2,'0')}`;
+}
+
+/** 数値文字列をパース (桁区切りカンマ・全角数字除去) */
+function parseNum(s) {
+  if (!s) return NaN;
+  const clean = String(s)
+    .replace(/,/g, '')
+    .replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
+    .trim();
+  return Number(clean);
+}
+
+/** CSVテキストを解析して行オブジェクト配列を返す */
+function parseCSVText(text) {
+  const lines = text.split(/\r?\n/);
+  let headerIdx = -1;
+  let headers = [];
+
+  // 「日付」を含む行をヘッダとして検出
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].includes('日付')) {
+      headerIdx = i;
+      headers = splitCSVLine(lines[i]);
+      break;
+    }
+  }
+  if (headerIdx === -1) return { error: 'ヘッダ行（日付）が見つかりません', rows: [], errors: [] };
+
+  const idxDate  = headers.findIndex(h => h.includes('日付'));
+  const idxClose = headers.findIndex(h => h.includes('終値'));
+  const idxVol   = headers.findIndex(h => h.includes('出来高'));
+  const idxBuy   = headers.findIndex(h => h.includes('信用買残'));
+  const idxSell  = headers.findIndex(h => h.includes('信用売残'));
+
+  if (idxDate < 0 || idxClose < 0) {
+    return { error: '必須列（日付・終値）が見つかりません', rows: [], errors: [] };
+  }
+
+  const rows = [], errors = [];
+  for (let i = headerIdx + 1; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    const cols = splitCSVLine(line);
+
+    const dateStr = cols[idxDate] || '';
+    const closeStr = cols[idxClose] || '';
+    const date = normalizeDate(dateStr);
+    if (!date) {
+      errors.push({ line: i + 1, reason: `日付形式不正: "${dateStr}"` });
+      continue;
+    }
+    const close = parseNum(closeStr);
+    if (isNaN(close) || close <= 0) {
+      errors.push({ line: i + 1, reason: `終値不正: "${closeStr}"` });
+      continue;
+    }
+    const row = { date, close };
+    // 信用残 — 空でも行を捨てない（タイムラグ考慮: 最新の有効値を後で採用）
+    if (idxBuy >= 0 && idxSell >= 0) {
+      const buy = parseNum(cols[idxBuy] || '');
+      const sell = parseNum(cols[idxSell] || '');
+      if (!isNaN(buy) && !isNaN(sell) && buy > 0 && sell > 0) {
+        row.creditBuy = buy;
+        row.creditSell = sell;
+        row.creditRatio = buy / sell;
+      }
+    }
+    rows.push(row);
+  }
+
+  // 日付昇順ソート
+  rows.sort((a, b) => a.date.localeCompare(b.date));
+  return { rows, errors, error: null };
+}
+
+/** rows から指標を算出 */
+function computeIndicators(rows, prevCreditRatio) {
+  const closes = rows.map(r => r.close);
+  const n = closes.length;
+
+  const rsiOk = n >= CONFIG.RSI_PERIOD + 1;
+  const rsi = rsiOk ? calcRSI(closes) : null;
+
+  const ma75Ok = n >= CONFIG.MA_PERIOD;
+  const ma75 = ma75Ok ? calcSMA(closes, CONFIG.MA_PERIOD) : null;
+  const latestClose = closes[n - 1];
+  const ma75Disparity = (ma75Ok && ma75) ? calcDisparity(latestClose, ma75) : null;
+
+  // 最新の信用残データを探す（タイムラグ対応: 後ろから検索）
+  let creditRatio = null;
+  let creditOk = false;
+  for (let i = rows.length - 1; i >= 0; i--) {
+    if (rows[i].creditRatio != null) {
+      creditRatio = rows[i].creditRatio;
+      creditOk = true;
+      break;
+    }
+  }
+  const creditRatioWeekChange = (creditOk && prevCreditRatio != null)
+    ? calcCreditChange(creditRatio, prevCreditRatio) : null;
+
+  const latestDate = rows[n - 1].date;
+  return {
+    weekId: getWeekId(latestDate),
+    latestDate, close: latestClose,
+    rsi, rsiOk,
+    ma75, ma75Ok, ma75Disparity,
+    creditRatio, creditOk, creditRatioWeekChange,
+    bars: n,
+  };
+}
+
+// ============================================================
+// Module 3: LocalStorage管理
+// ============================================================
+
+function lsGet(key) {
+  try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : null; }
+  catch(_) { return null; }
+}
+
+function lsSet(key, val) {
+  try { localStorage.setItem(key, JSON.stringify(val)); return true; }
+  catch(e) {
+    showLsError();
+    return false;
+  }
+}
+
+function showLsError() {
+  alert('LocalStorage への書き込みに失敗しました。\nプライベートモードまたはストレージ容量超過の可能性があります。\nJSONエクスポートでデータをバックアップしてください。');
+}
+
+function getWeeks() { return lsGet(CONFIG.LS_WEEKS) || {}; }
+function getMeta()  { return lsGet(CONFIG.LS_META)  || {}; }
+function getSettings() { return lsGet(CONFIG.LS_SETTINGS) || { userAcquiredPrices: {} }; }
+
+/** 保存済み週IDを昇順で返す */
+function getSortedWeekIds() {
+  return Object.keys(getWeeks()).sort();
+}
+
+/** 指定weekIdの直前の保存済みweekIdを返す */
+function getPrevWeekId(weekId) {
+  const ids = getSortedWeekIds();
+  const idx = ids.indexOf(weekId);
+  if (idx > 0) return ids[idx - 1];
+  // weekIdがまだ保存されていない場合は末尾
+  const before = ids.filter(id => id < weekId);
+  return before.length ? before[before.length - 1] : null;
+}
+
+/** 週データ保存 + 52週FIFOクリーン */
+function saveWeek(weekId, data) {
+  const weeks = getWeeks();
+  weeks[weekId] = { ...data, _savedAt: new Date().toISOString() };
+  // 52週超過分を削除
+  const ids = Object.keys(weeks).sort();
+  while (ids.length > CONFIG.HISTORY_MAX_WEEKS) {
+    delete weeks[ids.shift()];
+  }
+  return lsSet(CONFIG.LS_WEEKS, weeks);
+}
+
+function saveMeta(m) {
+  return lsSet(CONFIG.LS_META, { ...getMeta(), ...m, version: CONFIG.SCHEMA_VERSION });
+}
+
+function saveSettings(s) { return lsSet(CONFIG.LS_SETTINGS, s); }
+
+// ============================================================
+// Module 4: UI描画
+// ============================================================
+
+let _modalChart = null; // Chart instance for modal
+let _currentWeekId = null; // 今週の週ID (CSV解析後にセット)
+let _csvIndicators = {}; // code -> indicators (CSV解析後)
+let _csvErrors = []; // CSV解析エラー
+
+/* ------- NAVIGATE ------- */
+function navigate(screen) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('screen-' + screen).classList.add('active');
+  document.getElementById('nav-' + screen).classList.add('active');
+  if (screen === 'dashboard') renderDashboard();
+  if (screen === 'input')     renderInputScreen();
+}
+
+/* ------- DASHBOARD ------- */
+function renderDashboard() {
+  const weeks = getWeeks();
+  const ids = getSortedWeekIds();
+  if (ids.length === 0) {
+    document.getElementById('empty-state').style.display = 'block';
+    document.getElementById('theme-ranking').innerHTML = '';
+    document.getElementById('ticker-sections').innerHTML = '';
+    document.getElementById('alert-section').style.display = 'none';
+    document.getElementById('memo-banner').style.display = 'none';
+    return;
+  }
+  document.getElementById('empty-state').style.display = 'none';
+
+  const latestId = ids[ids.length - 1];
+  const curWeek = weeks[latestId];
+  const prevId = ids.length > 1 ? ids[ids.length - 2] : null;
+  const prevWeek = prevId ? weeks[prevId] : null;
+  const settings = getSettings();
+
+  // Memo banner
+  if (curWeek.memo) {
+    document.getElementById('memo-banner').style.display = 'block';
+    document.getElementById('memo-text').textContent = curWeek.memo;
+  } else {
+    document.getElementById('memo-banner').style.display = 'none';
+  }
+
+  // Compute theme scores
+  const themeData = computeThemeData(curWeek, prevWeek);
+
+  // Sort by Δスコア (降順)、同値は絶対スコア降順
+  themeData.sort((a, b) => {
+    const dd = b.delta - a.delta;
+    if (dd !== 0) return dd;
+    return b.score - a.score;
+  });
+
+  renderThemeRanking(themeData);
+  renderTickerBoard(latestId, weeks, settings);
+}
+
+function computeThemeData(curWeek, prevWeek) {
+  return CONFIG.THEMES.map(theme => {
+    const td = curWeek.themes?.[theme.id] || {};
+    const toggle = td.toggle || '中立';
+    const consensusItems = theme.tickers.map(code => curWeek.tickers?.[code]?.consensus || '据置');
+    const score = calcThemeScore(toggle, consensusItems);
+
+    let prevScore = null, delta = 0;
+    if (prevWeek) {
+      const ptd = prevWeek.themes?.[theme.id] || {};
+      const prevToggle = ptd.toggle || '中立';
+      const prevConsensus = theme.tickers.map(code => prevWeek.tickers?.[code]?.consensus || '据置');
+      prevScore = calcThemeScore(prevToggle, prevConsensus);
+      delta = score - prevScore;
+    }
+    return { theme, toggle, score, prevScore, delta, leadingValue: td.leadingValue };
+  });
+}
+
+function renderThemeRanking(themeData) {
+  const toggleColorMap = { '熱狂':'badge-enthu','流入':'badge-inflow','中立':'badge-neutral','流出':'badge-outflow' };
+  const html = themeData.map(td => {
+    const cls = toggleColorMap[td.toggle] || 'badge-neutral';
+    const deltaStr = td.delta > 0 ? `▲${td.delta}` : td.delta < 0 ? `▼${Math.abs(td.delta)}` : '±0';
+    const deltaCls = td.delta > 0 ? 'delta-pos' : td.delta < 0 ? 'delta-neg' : 'delta-zero';
+    const barColor = { '熱狂':'var(--red)','流入':'var(--yellow)','中立':'var(--white)','流出':'var(--blue)' }[td.toggle] || 'var(--white)';
+    const leading = td.leadingValue
+      ? `<span class="theme-leading">(${td.theme.leadingLabel}: ${Number(td.leadingValue).toLocaleString('ja-JP')})</span>` : '';
+    return `<div class="theme-row" onclick="scrollToTheme('${td.theme.id}')">
+      <span class="theme-badge ${cls}">${td.toggle}</span>
+      <div style="flex:1">
+        <div class="theme-name">${td.theme.name}${leading}</div>
+        <div class="theme-bar-wrap" style="margin-top:4px">
+          <div class="theme-bar-fill" style="width:${td.score}%;background:${barColor}"></div>
+        </div>
+      </div>
+      <div class="theme-meta">
+        <div style="font-size:16px;font-weight:800">${td.score}</div>
+        <div class="${deltaCls}">${deltaStr}</div>
+      </div>
+    </div>`;
+  }).join('');
+  document.getElementById('theme-ranking').innerHTML = html;
+}
+
+function scrollToTheme(themeId) {
+  const el = document.getElementById('theme-section-' + themeId);
+  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function renderTickerBoard(latestId, weeks, settings) {
+  const curWeek = weeks[latestId];
+  const ids = getSortedWeekIds();
+  const prevId = ids.length > 1 ? ids[ids.length - 2] : null;
+  const prevWeek = prevId ? weeks[prevId] : null;
+
+  // テーマスコアを事前計算
+  const themeScores = {};
+  const themeData = computeThemeData(curWeek, prevWeek);
+  themeData.forEach(td => { themeScores[td.theme.id] = td.score; });
+
+  // 各銘柄のシグナル・スコアを計算
+  const tickerResults = [];
+  Object.entries(CONFIG.TICKERS).forEach(([code, info]) => {
+    const td = curWeek.tickers?.[code] || {};
+    const themeScore = themeScores[info.theme] || 0;
+    const metrics = {
+      rsi: td.rsi ?? null,
+      ma75Disparity: td.ma75Disparity ?? null,
+      creditRatioWeekChange: td.creditRatioWeekChange ?? null,
+      daysToEarnings: td.daysToEarnings ?? null,
+    };
+    const tickerScore = calcTickerScore(metrics);
+    const signal = classifySignal({
+      tickerScore, themeScore,
+      rsi: td.rsi ?? null,
+      ma75Disparity: td.ma75Disparity ?? null,
+      consensus: td.consensus || '据置',
+      acquiredPrice: settings.userAcquiredPrices?.[code] ?? null,
+      currentClose: td.close ?? null,
+    });
+    tickerResults.push({ code, info, td, themeScore, tickerScore, signal, metrics });
+  });
+
+  // alert section (blue/purple)
+  const alerts = tickerResults.filter(t => t.signal === 'blue' || t.signal === 'purple');
+  const alertSection = document.getElementById('alert-section');
+  if (alerts.length > 0) {
+    alertSection.style.display = 'block';
+    document.getElementById('alert-grid').innerHTML = alerts.map(t => tickerCardHTML(t)).join('');
+  } else {
+    alertSection.style.display = 'none';
+  }
+
+  // テーマごとにグループ化して表示
+  const signalOrder = { red: 0, yellow: 1, white: 2, blue: 3, purple: 4 };
+  const sectionsHTML = CONFIG.THEMES.map(theme => {
+    const tickers = tickerResults
+      .filter(t => t.info.theme === theme.id)
+      .sort((a, b) => (signalOrder[a.signal] ?? 5) - (signalOrder[b.signal] ?? 5));
+    const td = curWeek.themes?.[theme.id] || {};
+    const leading = td.leadingValue
+      ? ` <span style="font-size:11px;color:var(--blue)">(${theme.leadingLabel}: ${Number(td.leadingValue).toLocaleString('ja-JP')})</span>` : '';
+    return `<div id="theme-section-${theme.id}" style="margin-bottom:16px">
+      <div class="section-label">${theme.name}${leading}</div>
+      <div class="ticker-grid">${tickers.map(t => tickerCardHTML(t)).join('')}</div>
+    </div>`;
+  }).join('');
+  document.getElementById('ticker-sections').innerHTML = sectionsHTML;
+}
+
+function tickerCardHTML(t) {
+  const sm = CONFIG.SIGNAL_META[t.signal];
+  const rsiStr = t.td.rsiOk === false ? '—' : fmt(t.td.rsi);
+  const dispStr = t.td.ma75Ok === false ? '—' : fmt(t.td.ma75Disparity);
+  const credStr = t.td.creditOk === false ? '—' : (t.td.creditRatioWeekChange != null ? fmt(t.td.creditRatioWeekChange) + '%' : '—');
+  const dteStr = t.td.daysToEarnings != null ? t.td.daysToEarnings + '日' : '—';
+  let reason = '';
+  if (t.signal === 'red') {
+    reason = `<div class="ticker-reason">${buildRedReason(t.code, t.info.theme, t.td.rsi, t.td.ma75Disparity)}</div>`;
+  }
+  return `<div class="ticker-card ${sm.cls}" onclick="openModal('${t.code}')">
+    <div class="ticker-sig">${sm.emoji} ${sm.label}</div>
+    <div class="ticker-name">${t.info.name}</div>
+    <div class="ticker-code">${t.code}</div>
+    <div class="ticker-score">${t.tickerScore}</div>
+    <div class="ticker-metrics">
+      RSI <b>${rsiStr}</b> | 乖離 <b>${dispStr}%</b><br>
+      信用変化 <b>${credStr}</b> | 決算 <b>${dteStr}</b>
+    </div>
+    ${reason}
+  </div>`;
+}
+
+/* ------- MODAL ------- */
+function openModal(code) {
+  const weeks = getWeeks();
+  const ids = getSortedWeekIds();
+  if (ids.length === 0) return;
+  const latestId = ids[ids.length - 1];
+  const curWeek = weeks[latestId];
+  const td = curWeek.tickers?.[code] || {};
+  const info = CONFIG.TICKERS[code];
+  const settings = getSettings();
+  const themeData = computeThemeData(curWeek, null);
+  const themeScore = themeData.find(t => t.theme.id === info.theme)?.score || 0;
+  const metrics = {
+    rsi: td.rsi ?? null,
+    ma75Disparity: td.ma75Disparity ?? null,
+    creditRatioWeekChange: td.creditRatioWeekChange ?? null,
+    daysToEarnings: td.daysToEarnings ?? null,
+  };
+  const tickerScore = calcTickerScore(metrics);
+  const signal = classifySignal({
+    tickerScore, themeScore,
+    rsi: td.rsi ?? null, ma75Disparity: td.ma75Disparity ?? null,
+    consensus: td.consensus || '据置',
+    acquiredPrice: settings.userAcquiredPrices?.[code] ?? null,
+    currentClose: td.close ?? null,
+  });
+  const sm = CONFIG.SIGNAL_META[signal];
+
+  document.getElementById('modal-title').textContent = `${info.name} (${code})`;
+  document.getElementById('modal-subtitle').textContent =
+    `${sm.emoji} ${sm.label} | テーマスコア: ${themeScore} | 個別スコア: ${tickerScore}`;
+
+  document.getElementById('modal-metrics').innerHTML = [
+    ['RSI', td.rsiOk === false ? '—' : fmt(td.rsi)],
+    ['75日線乖離', td.ma75Ok === false ? '—' : fmt(td.ma75Disparity) + '%'],
+    ['信用変化', td.creditOk === false ? '—' : (td.creditRatioWeekChange != null ? fmt(td.creditRatioWeekChange) + '%' : '—')],
+    ['決算まで', td.daysToEarnings != null ? td.daysToEarnings + '日' : '—'],
+    ['終値', td.close != null ? fmtNum(td.close) : '—'],
+    ['コンセンサス', td.consensus || '—'],
+  ].map(([l, v]) => `<div class="metric-box"><label>${l}</label><value>${v}</value></div>`).join('');
+
+  // 過去12週のスコア推移チャート
+  const hist = ids.slice(-12);
+  const labels = hist.map(id => id.slice(5)); // MM-DD
+  const scoreHist = hist.map(id => {
+    const w = weeks[id];
+    if (!w || !w.tickers?.[code]) return null;
+    const wtd = w.tickers[code];
+    return calcTickerScore({
+      rsi: wtd.rsi ?? null,
+      ma75Disparity: wtd.ma75Disparity ?? null,
+      creditRatioWeekChange: wtd.creditRatioWeekChange ?? null,
+      daysToEarnings: wtd.daysToEarnings ?? null,
+    });
+  });
+  const rsiHist = hist.map(id => {
+    const w = weeks[id];
+    return w?.tickers?.[code]?.rsi ?? null;
+  });
+
+  if (_modalChart) { _modalChart.destroy(); _modalChart = null; }
+  const canvas = document.getElementById('modal-chart');
+  _modalChart = new Chart(canvas, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        { label: '個別スコア', data: scoreHist, borderColor: '#4488ff', backgroundColor: 'rgba(68,136,255,.1)', fill: true, tension: 0.3, yAxisID: 'y' },
+        { label: 'RSI', data: rsiHist, borderColor: '#e6a817', backgroundColor: 'transparent', tension: 0.3, yAxisID: 'y2', borderDash: [4, 3] },
+      ],
+    },
+    options: {
+      responsive: false,
+      plugins: { legend: { position: 'top' } },
+      scales: {
+        y:  { min: 0, max: 100, position: 'left',  ticks: { color: '#8b949e' }, grid: { color: '#30363d' } },
+        y2: { min: 0, max: 100, position: 'right', ticks: { color: '#e6a817' }, grid: { display: false } },
+        x:  { ticks: { color: '#8b949e' }, grid: { color: '#30363d' } },
+      },
+    },
+  });
+
+  // メモ
+  const memoEl = document.getElementById('modal-memo');
+  if (curWeek.memo) {
+    memoEl.style.display = 'block';
+    memoEl.textContent = curWeek.memo;
+  } else { memoEl.style.display = 'none'; }
+
+  document.getElementById('modal-overlay').classList.add('open');
+}
+
+function closeModal(e) {
+  // 引数なし = Xボタン押下: 無条件で閉じる
+  // 引数あり = overlay クリック: overlay 自体のクリックのみ閉じる（内側のカードは無視）
+  if (e && e.target && e.target.id !== 'modal-overlay') return;
+  document.getElementById('modal-overlay').classList.remove('open');
+}
+
+/* ------- INPUT SCREEN ------- */
+function renderInputScreen() {
+  renderThemeToggles();
+  renderTickerAdjustments();
+  renderAcquiredPrices();
+  updateSaveBtn();
+}
+
+function renderThemeToggles() {
+  const weeks = getWeeks();
+  const ids = getSortedWeekIds();
+  const prevWeek = ids.length ? weeks[ids[ids.length - 1]] : null;
+
+  const html = CONFIG.THEMES.map(theme => {
+    const prevTd = prevWeek?.themes?.[theme.id] || {};
+    const savedToggle = prevTd.toggle || '中立';
+    const savedLeading = prevTd.leadingValue || '';
+
+    const toggleBtns = CONFIG.TOGGLE_OPTIONS.map(opt => {
+      const activeClass = opt === savedToggle
+        ? `active ${opt === '熱狂' ? 'enthu' : opt === '流入' ? 'inflow' : opt === '中立' ? 'neutral' : 'outflow'}` : '';
+      return `<button class="toggle-btn ${activeClass}" data-theme="${theme.id}" data-toggle="${opt}" onclick="selectToggle(this)">${opt}</button>`;
+    }).join('');
+
+    return `<div style="margin-bottom:16px">
+      <div style="font-size:13px;font-weight:700;margin-bottom:6px">${theme.name}</div>
+      <div class="toggle-group" style="margin-bottom:8px">${toggleBtns}</div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-size:12px;color:var(--text2)">${theme.leadingLabel}:</span>
+        <input type="number" class="form-input leading-input" style="width:110px"
+          data-theme="${theme.id}" data-leading="1"
+          placeholder="数値" value="${savedLeading}"
+          oninput="updateSaveBtn()">
+      </div>
+    </div>`;
+  }).join('<div class="divider"></div>');
+
+  document.getElementById('theme-toggles').innerHTML = html;
+}
+
+function selectToggle(btn) {
+  const themeId = btn.dataset.theme;
+  const opt = btn.dataset.toggle;
+  document.querySelectorAll(`.toggle-btn[data-theme="${themeId}"]`).forEach(b => {
+    b.classList.remove('active','enthu','inflow','neutral','outflow');
+  });
+  const clsMap = { '熱狂':'enthu','流入':'inflow','中立':'neutral','流出':'outflow' };
+  btn.classList.add('active', clsMap[opt] || '');
+  updateSaveBtn();
+}
+
+function renderTickerAdjustments() {
+  const weeks = getWeeks();
+  const ids = getSortedWeekIds();
+  const prevWeek = ids.length ? weeks[ids[ids.length - 1]] : null;
+
+  const html = Object.entries(CONFIG.TICKERS).map(([code, info]) => {
+    const prevTd = prevWeek?.tickers?.[code] || {};
+    const csvInd = _csvIndicators[code];
+    const consensus = csvInd?.consensus || prevTd.consensus || '据置';
+    const dte = prevTd.daysToEarnings ?? '';
+
+    // 前週比表示
+    const prevDte = prevTd.daysToEarnings;
+    const dteDiff = (dte !== '' && prevDte != null) ? ` (前週:${prevDte})` : '';
+
+    const consBtns = CONFIG.CONSENSUS_OPTIONS.map(opt => {
+      const isActive = opt === consensus;
+      const clsMap = { '上方修正':'cons-up','据置':'cons-hold','下方修正':'cons-down' };
+      const ac = isActive ? `active ${clsMap[opt]}` : '';
+      return `<button class="toggle-btn ${ac}" data-code="${code}" data-cons="${opt}" onclick="selectConsensus(this)">${opt}</button>`;
+    }).join('');
+
+    const rsiStr = csvInd ? (csvInd.rsiOk ? fmt(csvInd.rsi) : '—(不足)') : '—';
+    const dispStr = csvInd ? (csvInd.ma75Ok ? fmt(csvInd.ma75Disparity) + '%' : '—(不足)') : '—';
+    const credStr = csvInd ? (csvInd.creditOk ? (csvInd.creditRatioWeekChange != null ? fmt(csvInd.creditRatioWeekChange) + '%' : '—(前週なし)') : '—') : '—';
+
+    return `<div style="margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid var(--border)">
+      <div style="font-size:13px;font-weight:700;margin-bottom:4px">${info.name} <span style="font-size:11px;color:var(--text2)">${code}</span></div>
+      <div style="font-size:11px;color:var(--text2);margin-bottom:6px">RSI: ${rsiStr} | 乖離: ${dispStr} | 信用変化: ${credStr}</div>
+      <div style="font-size:12px;color:var(--text2);margin-bottom:4px">コンセンサス:</div>
+      <div class="toggle-group" style="margin-bottom:8px">${consBtns}</div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-size:12px;color:var(--text2)">決算まで(日):</span>
+        <input type="number" class="form-input" style="width:80px" min="0" max="365"
+          data-code="${code}" data-dte="1"
+          placeholder="日数" value="${dte}"
+          oninput="updateSaveBtn()">
+        <span style="font-size:11px;color:var(--text2)">${dteDiff}</span>
+      </div>
+    </div>`;
+  }).join('');
+
+  document.getElementById('ticker-adjustments').innerHTML = html;
+
+  // 前週のメモをプリフィル
+  const prevMemo = prevWeek?.memo || '';
+  document.getElementById('input-memo').value = prevMemo;
+}
+
+function selectConsensus(btn) {
+  const code = btn.dataset.code;
+  document.querySelectorAll(`.toggle-btn[data-code="${code}"]`).forEach(b => {
+    b.classList.remove('active','cons-up','cons-hold','cons-down');
+  });
+  const clsMap = { '上方修正':'cons-up','据置':'cons-hold','下方修正':'cons-down' };
+  btn.classList.add('active', clsMap[btn.dataset.cons] || '');
+  updateSaveBtn();
+}
+
+function renderAcquiredPrices() {
+  const settings = getSettings();
+  const prices = settings.userAcquiredPrices || {};
+  const html = Object.entries(CONFIG.TICKERS).map(([code, info]) => {
+    const v = prices[code] ?? '';
+    return `<div class="form-row">
+      <div class="form-label">${info.name} <span class="form-sub">${code}</span></div>
+      <input type="number" class="form-input" min="0"
+        data-code="${code}" data-acquired="1"
+        placeholder="取得価格" value="${v}"
+        onchange="saveAcquiredPrice('${code}', this.value)">
+    </div>`;
+  }).join('');
+  document.getElementById('acquired-prices').innerHTML = html;
+}
+
+function saveAcquiredPrice(code, val) {
+  const settings = getSettings();
+  if (!settings.userAcquiredPrices) settings.userAcquiredPrices = {};
+  const n = Number(val);
+  if (val === '' || isNaN(n)) delete settings.userAcquiredPrices[code];
+  else settings.userAcquiredPrices[code] = n;
+  saveSettings(settings);
+}
+
+function updateSaveBtn() {
+  document.getElementById('save-btn').disabled = false;
+}
+
+/* ------- CSV HANDLING ------- */
+function handleFileDrop(e) {
+  e.preventDefault();
+  document.getElementById('drop-zone').classList.remove('dragover');
+  const file = e.dataTransfer?.files?.[0];
+  if (file) processCSVFile(file);
+}
+
+function handleFileSelect(e) {
+  const file = e.target.files?.[0];
+  if (file) processCSVFile(file);
+}
+
+async function processCSVFile(file) {
+  const statusEl = document.getElementById('csv-status');
+  const previewEl = document.getElementById('csv-preview');
+  statusEl.textContent = '解析中...';
+  previewEl.innerHTML = '';
+  _csvIndicators = {};
+  _csvErrors = [];
+
+  try {
+    const buf = await readFileBuffer(file);
+    const text = decodeBuffer(buf);
+    const { rows, errors, error } = parseCSVText(text);
+
+    if (error) {
+      statusEl.innerHTML = `<span style="color:var(--red)">エラー: ${error}</span>`;
+      document.getElementById('save-btn').disabled = true;
+      return;
+    }
+
+    _csvErrors = errors;
+    if (rows.length === 0) {
+      statusEl.innerHTML = '<span style="color:var(--red)">データ行が見つかりません</span>';
+      return;
+    }
+
+    // weekIdを決定して前週の信用倍率を取得
+    const latestDate = rows[rows.length - 1].date;
+    _currentWeekId = getWeekId(latestDate);
+    const prevWkId = getPrevWeekId(_currentWeekId);
+    const prevWeek = prevWkId ? getWeeks()[prevWkId] : null;
+
+    // 銘柄コードを検出してマッチング
+    // 楽天CSVは1銘柄1ファイルが基本。銘柄コードをファイル名から推測
+    const detectedCode = detectCodeFromFileName(file.name);
+
+    if (detectedCode && CONFIG.TICKERS[detectedCode]) {
+      const prevCreditRatio = prevWeek?.tickers?.[detectedCode]?.creditRatio ?? null;
+      const ind = computeIndicators(rows, prevCreditRatio);
+      _csvIndicators[detectedCode] = ind;
+    } else {
+      // 全銘柄として処理（コードが不明な場合）
+      Object.keys(CONFIG.TICKERS).forEach(code => {
+        const prevCreditRatio = prevWeek?.tickers?.[code]?.creditRatio ?? null;
+        const ind = computeIndicators(rows, prevCreditRatio);
+        _csvIndicators[code] = ind;
+      });
+    }
+
+    // プレビュー表示
+    const codes = Object.keys(_csvIndicators);
+    let previewHTML = `<div style="margin-top:8px;font-size:12px;color:var(--green)">解析完了: ${rows.length}行 (週ID: ${_currentWeekId})</div>`;
+    previewHTML += `<table class="csv-preview-table"><thead><tr>
+      <th>銘柄</th><th>終値</th><th>RSI</th><th>乖離%</th><th>信用変化%</th>
+    </tr></thead><tbody>`;
+    codes.forEach(code => {
+      const ind = _csvIndicators[code];
+      previewHTML += `<tr>
+        <td>${CONFIG.TICKERS[code]?.name || code}</td>
+        <td>${ind.close != null ? fmtNum(ind.close) : '—'}</td>
+        <td>${ind.rsiOk ? fmt(ind.rsi) : '—'}</td>
+        <td>${ind.ma75Ok ? fmt(ind.ma75Disparity) : '—'}</td>
+        <td>${ind.creditRatioWeekChange != null ? fmt(ind.creditRatioWeekChange) : '—'}</td>
+      </tr>`;
+    });
+    previewHTML += '</tbody></table>';
+
+    if (errors.length > 0) {
+      previewHTML += `<ul class="csv-error-list">${errors.map(e => `<li>行${e.line}: ${e.reason}</li>`).join('')}</ul>`;
+    }
+    previewEl.innerHTML = previewHTML;
+    statusEl.textContent = `${file.name}`;
+
+    // 入力欄を再描画してCSV値を反映
+    renderTickerAdjustments();
+    updateSaveBtn();
+  } catch(e) {
+    statusEl.innerHTML = `<span style="color:var(--red)">読み込みエラー: ${e.message}</span>`;
+  }
+}
+
+function detectCodeFromFileName(name) {
+  // ファイル名から銘柄コード（4桁数字）を検出
+  const m = name.match(/(\d{4})/);
+  if (m && CONFIG.TICKERS[m[1]]) return m[1];
+  return null;
+}
+
+/* ------- SAVE ------- */
+function saveWeekData() {
+  const weekId = _currentWeekId || getWeekId(new Date().toISOString().slice(0, 10));
+
+  // テーマデータ収集
+  const themes = {};
+  CONFIG.THEMES.forEach(theme => {
+    const activeToggle = document.querySelector(`.toggle-btn.active[data-theme="${theme.id}"][data-toggle]`);
+    const leadingInput = document.querySelector(`input[data-theme="${theme.id}"][data-leading]`);
+    themes[theme.id] = {
+      toggle: activeToggle?.dataset.toggle || '中立',
+      leadingValue: leadingInput?.value || '',
+    };
+  });
+
+  // 銘柄データ収集
+  const tickers = {};
+  Object.keys(CONFIG.TICKERS).forEach(code => {
+    const activeCons = document.querySelector(`.toggle-btn.active[data-code="${code}"][data-cons]`);
+    const dteInput = document.querySelector(`input[data-code="${code}"][data-dte]`);
+    const ind = _csvIndicators[code] || {};
+    tickers[code] = {
+      consensus: activeCons?.dataset.cons || '据置',
+      daysToEarnings: dteInput?.value ? Number(dteInput.value) : null,
+      close: ind.close ?? null,
+      rsi: ind.rsi ?? null,
+      rsiOk: ind.rsiOk ?? false,
+      ma75: ind.ma75 ?? null,
+      ma75Ok: ind.ma75Ok ?? false,
+      ma75Disparity: ind.ma75Disparity ?? null,
+      creditRatio: ind.creditRatio ?? null,
+      creditOk: ind.creditOk ?? false,
+      creditRatioWeekChange: ind.creditRatioWeekChange ?? null,
+      bars: ind.bars ?? 0,
+    };
+  });
+
+  const memo = document.getElementById('input-memo').value.trim();
+
+  const ok = saveWeek(weekId, { themes, tickers, memo });
+  if (ok) {
+    saveMeta({ lastUpdated: new Date().toISOString() });
+    const statusEl = document.getElementById('save-status');
+    statusEl.innerHTML = `<span style="color:var(--green)">保存完了: 週ID ${weekId}</span>`;
+    setTimeout(() => { statusEl.textContent = ''; }, 3000);
+  }
+}
+
+/* ------- EXPORT / RESET ------- */
+function exportData() {
+  const data = {
+    meta: getMeta(),
+    weeks: getWeeks(),
+    settings: getSettings(),
+    exportedAt: new Date().toISOString(),
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `rotation_v3_${new Date().toISOString().slice(0,10)}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function clearData() {
+  if (!confirm('すべてのデータを削除しますか？この操作は取り消せません。')) return;
+  [CONFIG.LS_META, CONFIG.LS_WEEKS, CONFIG.LS_SETTINGS].forEach(k => {
+    try { localStorage.removeItem(k); } catch(_) {}
+  });
+  renderDashboard();
+}
+
+// ============================================================
+// Module 5: 初期化・サンプルデータ
+// ============================================================
+
+function injectSampleData() {
+  // 3週分のサンプルデータを初期注入 (データが空の場合のみ)
+  if (getSortedWeekIds().length > 0) return;
+  const weeks = {
+    '2026-05-29': {
+      memo: 'FOMCタカ派維持で短期調整。半導体は仕込み場を探す局面。',
+      themes: {
+        ai_semi:   { toggle: '流入', leadingValue: '4850' },
+        ai_infra:  { toggle: '熱狂', leadingValue: '3200' },
+        finance:   { toggle: '中立', leadingValue: '1.48' },
+        defense:   { toggle: '流入', leadingValue: '8.3'  },
+        entertain: { toggle: '中立', leadingValue: '220'  },
+      },
+      tickers: {
+        '8035': { consensus:'上方修正', daysToEarnings:45, close:22000, rsi:38, rsiOk:true, ma75:24000, ma75Ok:true, ma75Disparity:-8.3, creditRatio:1.8, creditOk:true, creditRatioWeekChange:-5.0, bars:180 },
+        '6525': { consensus:'据置',    daysToEarnings:38, close:4200,  rsi:42, rsiOk:true, ma75:4600,  ma75Ok:true, ma75Disparity:-8.7, creditRatio:2.1, creditOk:true, creditRatioWeekChange:-2.0, bars:160 },
+        '9984': { consensus:'据置',    daysToEarnings:22, close:9800,  rsi:52, rsiOk:true, ma75:9500,  ma75Ok:true, ma75Disparity:3.2,  creditRatio:3.5, creditOk:true, creditRatioWeekChange:8.0,  bars:200 },
+        '5803': { consensus:'上方修正', daysToEarnings:60, close:6500,  rsi:32, rsiOk:true, ma75:7200,  ma75Ok:true, ma75Disparity:-9.7, creditRatio:1.1, creditOk:true, creditRatioWeekChange:-12.0,bars:150 },
+        '5801': { consensus:'据置',    daysToEarnings:55, close:3800,  rsi:45, rsiOk:true, ma75:3950,  ma75Ok:true, ma75Disparity:-3.8, creditRatio:0.9, creditOk:true, creditRatioWeekChange:-3.0, bars:140 },
+        '8306': { consensus:'上方修正', daysToEarnings:30, close:1850,  rsi:55, rsiOk:true, ma75:1780,  ma75Ok:true, ma75Disparity:3.9,  creditRatio:1.4, creditOk:true, creditRatioWeekChange:2.0,  bars:200 },
+        '7011': { consensus:'上方修正', daysToEarnings:48, close:88000, rsi:48, rsiOk:true, ma75:82000, ma75Ok:true, ma75Disparity:7.3,  creditRatio:2.2, creditOk:true, creditRatioWeekChange:5.0,  bars:190 },
+        '7974': { consensus:'据置',    daysToEarnings:35, close:8200,  rsi:44, rsiOk:true, ma75:8600,  ma75Ok:true, ma75Disparity:-4.7, creditRatio:1.6, creditOk:true, creditRatioWeekChange:-1.0, bars:200 },
+      },
+    },
+    '2026-06-05': {
+      memo: '米雇用統計が強く利下げ観測後退。半導体SOXは5,000回復。',
+      themes: {
+        ai_semi:   { toggle: '流入', leadingValue: '5010' },
+        ai_infra:  { toggle: '熱狂', leadingValue: '3350' },
+        finance:   { toggle: '流入', leadingValue: '1.52' },
+        defense:   { toggle: '流入', leadingValue: '8.5'  },
+        entertain: { toggle: '中立', leadingValue: '225'  },
+      },
+      tickers: {
+        '8035': { consensus:'上方修正', daysToEarnings:38, close:23500, rsi:45, rsiOk:true, ma75:24100, ma75Ok:true, ma75Disparity:-2.5, creditRatio:1.7, creditOk:true, creditRatioWeekChange:-5.6, bars:181 },
+        '6525': { consensus:'据置',    daysToEarnings:31, close:4400,  rsi:50, rsiOk:true, ma75:4650,  ma75Ok:true, ma75Disparity:-5.4, creditRatio:2.0, creditOk:true, creditRatioWeekChange:-4.8, bars:161 },
+        '9984': { consensus:'据置',    daysToEarnings:15, close:10200, rsi:58, rsiOk:true, ma75:9550,  ma75Ok:true, ma75Disparity:6.8,  creditRatio:3.6, creditOk:true, creditRatioWeekChange:2.9,  bars:201 },
+        '5803': { consensus:'上方修正', daysToEarnings:53, close:7000,  rsi:38, rsiOk:true, ma75:7300,  ma75Ok:true, ma75Disparity:-4.1, creditRatio:1.0, creditOk:true, creditRatioWeekChange:-9.1, bars:151 },
+        '5801': { consensus:'上方修正', daysToEarnings:48, close:3900,  rsi:48, rsiOk:true, ma75:3980,  ma75Ok:true, ma75Disparity:-2.0, creditRatio:0.85,creditOk:true, creditRatioWeekChange:-5.6, bars:141 },
+        '8306': { consensus:'上方修正', daysToEarnings:23, close:1920,  rsi:60, rsiOk:true, ma75:1800,  ma75Ok:true, ma75Disparity:6.7,  creditRatio:1.5, creditOk:true, creditRatioWeekChange:7.1,  bars:201 },
+        '7011': { consensus:'上方修正', daysToEarnings:41, close:91000, rsi:52, rsiOk:true, ma75:83000, ma75Ok:true, ma75Disparity:9.6,  creditRatio:2.3, creditOk:true, creditRatioWeekChange:4.5,  bars:191 },
+        '7974': { consensus:'上方修正', daysToEarnings:28, close:8600,  rsi:50, rsiOk:true, ma75:8650,  ma75Ok:true, ma75Disparity:-0.6, creditRatio:1.5, creditOk:true, creditRatioWeekChange:-6.3, bars:201 },
+      },
+    },
+    '2026-06-12': {
+      memo: 'AI関連SOX5,120突破。フジクラは RSI32 の売られすぎで注目。',
+      themes: {
+        ai_semi:   { toggle: '熱狂', leadingValue: '5120' },
+        ai_infra:  { toggle: '熱狂', leadingValue: '3500' },
+        finance:   { toggle: '流入', leadingValue: '1.55' },
+        defense:   { toggle: '流入', leadingValue: '8.7'  },
+        entertain: { toggle: '流入', leadingValue: '230'  },
+      },
+      tickers: {
+        '8035': { consensus:'上方修正', daysToEarnings:30, close:24500, rsi:32, rsiOk:true, ma75:24200, ma75Ok:true, ma75Disparity:-16.0,creditRatio:1.5, creditOk:true, creditRatioWeekChange:-11.8,bars:182 },
+        '6525': { consensus:'上方修正', daysToEarnings:24, close:4100,  rsi:40, rsiOk:true, ma75:4700,  ma75Ok:true, ma75Disparity:-12.8,creditRatio:1.8, creditOk:true, creditRatioWeekChange:-10.0,bars:162 },
+        '9984': { consensus:'据置',    daysToEarnings:8,  close:10500, rsi:62, rsiOk:true, ma75:9600,  ma75Ok:true, ma75Disparity:9.4,  creditRatio:3.7, creditOk:true, creditRatioWeekChange:2.8,  bars:202 },
+        '5803': { consensus:'上方修正', daysToEarnings:45, close:6200,  rsi:32, rsiOk:true, ma75:7400,  ma75Ok:true, ma75Disparity:-16.2,creditRatio:0.9, creditOk:true, creditRatioWeekChange:-10.0,bars:152 },
+        '5801': { consensus:'上方修正', daysToEarnings:40, close:3750,  rsi:41, rsiOk:true, ma75:4000,  ma75Ok:true, ma75Disparity:-6.3, creditRatio:0.8, creditOk:true, creditRatioWeekChange:-5.9, bars:142 },
+        '8306': { consensus:'上方修正', daysToEarnings:16, close:1980,  rsi:65, rsiOk:true, ma75:1820,  ma75Ok:true, ma75Disparity:8.8,  creditRatio:1.6, creditOk:true, creditRatioWeekChange:6.7,  bars:202 },
+        '7011': { consensus:'上方修正', daysToEarnings:33, close:93000, rsi:55, rsiOk:true, ma75:84000, ma75Ok:true, ma75Disparity:10.7, creditRatio:2.4, creditOk:true, creditRatioWeekChange:4.3,  bars:192 },
+        '7974': { consensus:'上方修正', daysToEarnings:20, close:9200,  rsi:55, rsiOk:true, ma75:8700,  ma75Ok:true, ma75Disparity:5.7,  creditRatio:1.4, creditOk:true, creditRatioWeekChange:-6.7, bars:202 },
+      },
+    },
+  };
+  lsSet(CONFIG.LS_WEEKS, weeks);
+  saveMeta({ lastUpdated: new Date().toISOString(), enteredBy: 'sample', csvName: 'sample_data' });
+}
+
+// ============================================================
+// Module 6: テストランナー (?test=1)
+// ============================================================
+
+function runTests() {
+  document.getElementById('test-panel').style.display = 'block';
+  document.getElementById('screen-dashboard').style.display = 'none';
+  document.getElementById('screen-input').style.display = 'none';
+  document.getElementById('nav').style.display = 'none';
+
+  const results = [];
+  function assert(name, cond, detail = '') {
+    results.push({ name, pass: !!cond, detail });
+  }
+  function approxEq(a, b, eps = 0.5) { return Math.abs(a - b) <= eps; }
+
+  // --- Test 1: calcSMA ---
+  const closes = [100,102,98,105,103,107,104,106,108,110,109,111,112,114,113];
+  const sma5 = calcSMA(closes, 5);
+  assert('calcSMA(5) 正常計算', approxEq(sma5, (113+114+112+111+109)/5), `got ${sma5}`);
+  assert('calcSMA 不足本数→null', calcSMA([1,2,3], 5) === null);
+
+  // --- Test 2: calcRSI ---
+  // 15本の単調上昇
+  const risingSeries = Array.from({length: 15}, (_, i) => 100 + i);
+  const rsiAll = calcRSI(risingSeries);
+  assert('calcRSI 単調上昇→100', rsiAll === 100, `got ${rsiAll}`);
+  assert('calcRSI 不足本数→null', calcRSI([1,2,3]) === null);
+  // 実際の値テスト (14本+1)
+  const mixedSeries = [100,102,101,103,102,104,103,105,104,106,105,107,106,108,107];
+  const rsiMixed = calcRSI(mixedSeries);
+  assert('calcRSI 混在系列→0-100範囲', rsiMixed != null && rsiMixed >= 0 && rsiMixed <= 100, `got ${rsiMixed}`);
+
+  // --- Test 3: calcDisparity ---
+  assert('calcDisparity 正常', approxEq(calcDisparity(110, 100), 10.0));
+  assert('calcDisparity 負', approxEq(calcDisparity(85, 100), -15.0));
+  assert('calcDisparity null ma→null', calcDisparity(100, null) === null);
+
+  // --- Test 4: calcCreditChange ---
+  assert('calcCreditChange 正常', approxEq(calcCreditChange(1.1, 1.0), 10.0));
+  assert('calcCreditChange 減少', approxEq(calcCreditChange(0.9, 1.0), -10.0));
+  assert('calcCreditChange null prev→null', calcCreditChange(1.0, null) === null);
+
+  // --- Test 5: calcThemeScore ---
+  assert('calcThemeScore 熱狂+全上方', calcThemeScore('熱狂', ['上方修正','上方修正']) === Math.min(100,80+20));
+  assert('calcThemeScore 流入+据置',   calcThemeScore('流入', ['据置']) === 60+10);
+  assert('calcThemeScore 流出+下方',   calcThemeScore('流出', ['下方修正']) === 0+0);
+  assert('calcThemeScore cap at 100',  calcThemeScore('熱狂', ['上方修正','上方修正','上方修正']) <= 100);
+
+  // --- Test 6: calcTickerScore 境界値 ---
+  // RSI境界 34.9 → 30
+  assert('RSI 34.9→30', calcTickerScore({ rsi:34.9, ma75Disparity:null, creditRatioWeekChange:null, daysToEarnings:null }) === 30);
+  // RSI境界 35 → 20
+  assert('RSI 35→20', calcTickerScore({ rsi:35, ma75Disparity:null, creditRatioWeekChange:null, daysToEarnings:null }) === 20);
+  // RSI境界 45 → 10
+  assert('RSI 45→10', calcTickerScore({ rsi:45, ma75Disparity:null, creditRatioWeekChange:null, daysToEarnings:null }) === 10);
+  // RSI境界 55 → 0
+  assert('RSI 55→0',  calcTickerScore({ rsi:55, ma75Disparity:null, creditRatioWeekChange:null, daysToEarnings:null }) === 0);
+  // 乖離境界 -15 → 20(not 30)
+  assert('乖離 -15→20', calcTickerScore({ rsi:null, ma75Disparity:-15, creditRatioWeekChange:null, daysToEarnings:null }) === 20);
+  // 乖離 < -15 → 30
+  assert('乖離 -15.1→30', calcTickerScore({ rsi:null, ma75Disparity:-15.1, creditRatioWeekChange:null, daysToEarnings:null }) === 30);
+  // 乖離 -5 → 10
+  assert('乖離 -5→10', calcTickerScore({ rsi:null, ma75Disparity:-5, creditRatioWeekChange:null, daysToEarnings:null }) === 10);
+  // 乖離 0 → 0
+  assert('乖離 0→0', calcTickerScore({ rsi:null, ma75Disparity:0, creditRatioWeekChange:null, daysToEarnings:null }) === 0);
+  // 信用変化 -10 → 15
+  assert('信用 -10→15', calcTickerScore({ rsi:null, ma75Disparity:null, creditRatioWeekChange:-10, daysToEarnings:null }) === 15);
+  // 信用変化 10 → 0
+  assert('信用 +10→0', calcTickerScore({ rsi:null, ma75Disparity:null, creditRatioWeekChange:10, daysToEarnings:null }) === 0);
+  // 決算 15日 → +25
+  assert('決算 15日→+25', calcTickerScore({ rsi:null, ma75Disparity:null, creditRatioWeekChange:null, daysToEarnings:15 }) === 25);
+  // 決算 14日 → +10
+  assert('決算 14日→+10', calcTickerScore({ rsi:null, ma75Disparity:null, creditRatioWeekChange:null, daysToEarnings:14 }) === 10);
+  // 決算 7日 → -20 (clamp to 0)
+  assert('決算 7日→-20(clamp0)', calcTickerScore({ rsi:null, ma75Disparity:null, creditRatioWeekChange:null, daysToEarnings:7 }) === 0);
+  // 全MAXスコア
+  const maxScore = calcTickerScore({ rsi:30, ma75Disparity:-20, creditRatioWeekChange:-15, daysToEarnings:15 });
+  assert('全MAX→100', maxScore === 100);
+  // clamp 0
+  const minScore = calcTickerScore({ rsi:60, ma75Disparity:5, creditRatioWeekChange:15, daysToEarnings:5 });
+  assert('clamp min→0', minScore === 0);
+
+  // --- Test 7: classifySignal 優先順位 ---
+  // purple(下方修正) > 何でも
+  assert('signal 下方修正→purple', classifySignal({ tickerScore:90, themeScore:80, rsi:80, ma75Disparity:25, consensus:'下方修正', acquiredPrice:null, currentClose:null }) === 'purple');
+  // purple(損失) > blue
+  assert('signal 損失-15%→purple', classifySignal({ tickerScore:10, themeScore:10, rsi:80, ma75Disparity:25, consensus:'据置', acquiredPrice:100, currentClose:85 }) === 'purple');
+  // blue(RSI>=75 AND 乖離>=20) > red
+  assert('signal blue', classifySignal({ tickerScore:90, themeScore:80, rsi:75, ma75Disparity:20, consensus:'据置', acquiredPrice:null, currentClose:null }) === 'blue');
+  // red
+  assert('signal red', classifySignal({ tickerScore:80, themeScore:75, rsi:30, ma75Disparity:-20, consensus:'上方修正', acquiredPrice:null, currentClose:null }) === 'red');
+  // yellow
+  assert('signal yellow', classifySignal({ tickerScore:68, themeScore:65, rsi:40, ma75Disparity:-10, consensus:'据置', acquiredPrice:null, currentClose:null }) === 'yellow');
+  // white
+  assert('signal white', classifySignal({ tickerScore:30, themeScore:30, rsi:60, ma75Disparity:5, consensus:'据置', acquiredPrice:null, currentClose:null }) === 'white');
+
+  // --- Test 8: getWeekId ---
+  // 2026-06-12 = Friday, 2026-06-13 = Saturday, 2026-06-14 = Sunday, 2026-06-15 = Monday
+  assert('weekId 月曜→金曜', getWeekId('2026-06-15') === '2026-06-19'); // Mon→その週のFri(6/19)
+  assert('weekId 金曜→金曜', getWeekId('2026-06-12') === '2026-06-12'); // Fri→Fri(当日)
+  assert('weekId 土曜→前金', getWeekId('2026-06-13') === '2026-06-12'); // Sat→前Fri(6/12)
+  assert('weekId 日曜→前金', getWeekId('2026-06-14') === '2026-06-12'); // Sun→前Fri(6/12)
+  // 2026-06-07 = Sunday, prev Friday = 2026-06-05
+  assert('weekId 日曜2→前金', getWeekId('2026-06-07') === '2026-06-05'); // Sun→前Fri(6/5)
+
+  // --- Test 9: CSV解析 ---
+  const sampleCSV = `銘柄コード:8035\n銘柄名:東京エレクトロン\n日付,始値,高値,安値,終値,出来高,信用買残,信用売残\n2026/06/01,"24,000","24,500","23,800","24,200",1234567,"100,000","80,000"\n2026/06/02,24200,24800,24100,24600,890000,102000,78000\n`;
+  const { rows, errors, error } = parseCSVText(sampleCSV);
+  assert('CSV メタ行スキップ→ヘッダ検出', !error, error || '');
+  assert('CSV 行数=2', rows.length === 2);
+  assert('CSV 終値カンマ除去', rows[0].close === 24200);
+  assert('CSV 信用倍率計算', approxEq(rows[0].creditRatio, 100000/80000, 0.01));
+  assert('CSV 日付正規化', rows[0].date === '2026-06-01');
+
+  // --- Test 10: LocalStorage 保存・復元・52週FIFO ---
+  const testKey = 'rotation_v3_weeks';
+  const origWeeks = lsGet(testKey);
+  // 52週+1を書いてFIFO確認
+  const testWeeks = {};
+  for (let i = 0; i < 53; i++) {
+    const d = new Date(2024, 0, 5 + i * 7);
+    const k = d.toISOString().slice(0,10);
+    testWeeks[k] = { themes: {}, tickers: {}, memo: '' };
+  }
+  const oldestKey = Object.keys(testWeeks).sort()[0];
+  lsSet(testKey, testWeeks);
+  // saveWeek を呼ぶと53週目が来てFIFO削除
+  const fiftyThirdKey = Object.keys(testWeeks).sort()[52];
+  saveWeek(fiftyThirdKey, { themes:{}, tickers:{}, memo:'fifo test' });
+  const afterFIFO = getWeeks();
+  assert('52週FIFO: 最古削除', afterFIFO[oldestKey] === undefined);
+  assert('52週FIFO: 件数<=52', Object.keys(afterFIFO).length <= CONFIG.HISTORY_MAX_WEEKS);
+  // 復元
+  if (origWeeks) lsSet(testKey, origWeeks); else try { localStorage.removeItem(testKey); } catch(_) {}
+
+  // --- 結果表示 ---
+  const pass = results.filter(r => r.pass).length;
+  const fail = results.filter(r => !r.pass).length;
+  const html = `<h2 style="margin-bottom:16px">🧪 テスト結果</h2>` +
+    results.map(r => `<div class="test-result ${r.pass ? 'test-pass':'test-fail'}">
+      ${r.pass ? '✅':'❌'} ${r.name}${r.detail ? ' — '+r.detail:''}
+    </div>`).join('') +
+    `<div class="test-summary ${fail===0?'test-pass':'test-fail'}">
+      ${fail===0?'✅ 全テスト通過':'❌ 失敗'}: ${pass}/${pass+fail}件
+    </div>`;
+  document.getElementById('test-panel').innerHTML = html;
+}
+
+// ============================================================
+// 起動
+// ============================================================
+document.addEventListener('DOMContentLoaded', () => {
+  if (new URLSearchParams(location.search).get('test') === '1') {
+    runTests();
+    return;
+  }
+  injectSampleData();
+  renderDashboard();
+  renderInputScreen();
+});
+</script>
+
+<!-- ============================================================
+     Chart.js compatible inline implementation (Canvas-based)
+     Replaces Chart.js 4.x UMD — implements the API subset used
+     by this app (horizontal bar + line with dual Y-axis).
+     No external network calls. Self-contained.
+     ============================================================ -->
+<script id="chartjs-vendor">
+(function(global) {
+  'use strict';
+
+  const COLORS = {
+    grid: '#30363d',
+    text: '#8b949e',
+    bg: '#161b22',
+  };
+
+  function px(v) { return Math.round(v); }
+
+  function drawRoundRect(ctx, x, y, w, h, r) {
+    r = Math.min(r, Math.abs(h)/2, Math.abs(w)/2);
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+  }
+
+  class MiniChart {
+    constructor(canvas, config) {
+      if (typeof canvas === 'string') canvas = document.getElementById(canvas);
+      this.canvas = canvas;
+      this.ctx = canvas.getContext('2d');
+      this.config = config;
+      this._legendVisible = {};
+      config.data?.datasets?.forEach((ds, i) => { this._legendVisible[i] = true; });
+      this._bindEvents();
+      this._render();
+    }
+
+    update(newConfig) {
+      if (newConfig) {
+        this.config = newConfig;
+        this._legendVisible = {};
+        newConfig.data?.datasets?.forEach((ds, i) => { this._legendVisible[i] = true; });
+      }
+      this._render();
+    }
+
+    destroy() {
+      if (this._clickHandler) this.canvas.removeEventListener('click', this._clickHandler);
+      this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    }
+
+    _bindEvents() {
+      this._clickHandler = (e) => this._handleClick(e);
+      this.canvas.addEventListener('click', this._clickHandler);
+    }
+
+    _handleClick(e) {
+      const rect = this.canvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      const scaleX = this.canvas.width / rect.width;
+      const scaleY = this.canvas.height / rect.height;
+      const cx = x * scaleX, cy = y * scaleY;
+      // Check legend click
+      if (this._legendHitAreas) {
+        this._legendHitAreas.forEach((area, i) => {
+          if (cx >= area.x && cx <= area.x + area.w && cy >= area.y && cy <= area.y + area.h) {
+            this._legendVisible[i] = !this._legendVisible[i];
+            this._render();
+          }
+        });
+      }
+    }
+
+    _render() {
+      const { type, data, options = {} } = this.config;
+      const isHBar = type === 'bar' && options.indexAxis === 'y';
+      this.canvas.width = this.canvas.offsetWidth || 340;
+      this.canvas.height = this.canvas.offsetHeight || 160;
+      const ctx = this.ctx;
+      ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+      if (isHBar) this._renderHBar(data, options);
+      else if (type === 'line') this._renderLine(data, options);
+      else if (type === 'bar') this._renderVBar(data, options);
+    }
+
+    _renderHBar(data, options) {
+      const ctx = this.ctx;
+      const W = this.canvas.width, H = this.canvas.height;
+      const labels = data.labels || [];
+      const ds = data.datasets?.[0] || {};
+      const values = ds.data || [];
+      const colors = Array.isArray(ds.backgroundColor) ? ds.backgroundColor : Array(values.length).fill(ds.backgroundColor || '#4488ff');
+
+      const padL = 120, padR = 50, padT = 14, padB = 24;
+      const chartW = W - padL - padR;
+      const chartH = H - padT - padB;
+      const maxVal = options.scales?.x?.max ?? Math.max(...values.filter(v => v != null), 1);
+      const barH = Math.max(8, Math.min(28, (chartH / labels.length) - 6));
+      const gap = (chartH - barH * labels.length) / Math.max(labels.length + 1, 1);
+
+      // Grid lines
+      ctx.strokeStyle = COLORS.grid;
+      ctx.lineWidth = 1;
+      [0, 25, 50, 75, 100].forEach(v => {
+        const x = px(padL + (v / maxVal) * chartW);
+        ctx.beginPath(); ctx.moveTo(x, padT); ctx.lineTo(x, H - padB); ctx.stroke();
+        ctx.fillStyle = COLORS.text;
+        ctx.font = '10px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(v, x, H - padB + 14);
+      });
+
+      // Bars
+      labels.forEach((label, i) => {
+        const val = values[i];
+        if (val == null) return;
+        const y = padT + gap * (i + 1) + barH * i;
+        const bw = (val / maxVal) * chartW;
+
+        // Background
+        ctx.fillStyle = 'rgba(255,255,255,.05)';
+        drawRoundRect(ctx, padL, y, chartW, barH, 4);
+        ctx.fill();
+
+        // Bar
+        const col = Array.isArray(colors) ? colors[i] : colors;
+        ctx.fillStyle = col || '#4488ff';
+        if (bw > 0) { drawRoundRect(ctx, padL, y, bw, barH, 4); ctx.fill(); }
+
+        // Label
+        ctx.fillStyle = COLORS.text;
+        ctx.font = '12px sans-serif';
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(label, padL - 6, y + barH / 2);
+
+        // Value
+        ctx.fillStyle = '#e6edf3';
+        ctx.font = 'bold 11px sans-serif';
+        ctx.textAlign = 'left';
+        ctx.fillText(val, padL + bw + 4, y + barH / 2);
+      });
+    }
+
+    _renderLine(data, options) {
+      const ctx = this.ctx;
+      const W = this.canvas.width, H = this.canvas.height;
+      const labels = data.labels || [];
+      const datasets = data.datasets || [];
+      const hasLegend = options.plugins?.legend?.position === 'top';
+      const legendH = hasLegend ? 28 : 0;
+      const padL = 36, padR = 36, padT = legendH + 10, padB = 24;
+      const chartW = W - padL - padR;
+      const chartH = H - padT - padB;
+
+      this._legendHitAreas = [];
+
+      // Legend
+      if (hasLegend) {
+        let lx = padL;
+        datasets.forEach((ds, i) => {
+          const color = ds.borderColor || '#4488ff';
+          const visible = this._legendVisible[i] !== false;
+          ctx.fillStyle = visible ? color : COLORS.text;
+          ctx.fillRect(lx, 8, 14, 10);
+          ctx.fillStyle = visible ? '#e6edf3' : COLORS.text;
+          ctx.font = '11px sans-serif';
+          ctx.textBaseline = 'middle';
+          ctx.textAlign = 'left';
+          ctx.fillText(ds.label || '', lx + 18, 13);
+          const tw = ctx.measureText(ds.label || '').width;
+          this._legendHitAreas.push({ x: lx, y: 4, w: tw + 24, h: 18 });
+          lx += tw + 36;
+        });
+      }
+
+      // Grid
+      ctx.strokeStyle = COLORS.grid;
+      ctx.lineWidth = 1;
+      const yScale = options.scales?.y || {};
+      const yMin = yScale.min ?? 0, yMax = yScale.max ?? 100;
+      [0, 25, 50, 75, 100].forEach(v => {
+        if (v < yMin || v > yMax) return;
+        const yp = px(padT + chartH - ((v - yMin) / (yMax - yMin)) * chartH);
+        ctx.beginPath(); ctx.moveTo(padL, yp); ctx.lineTo(W - padR, yp); ctx.stroke();
+        ctx.fillStyle = COLORS.text;
+        ctx.font = '10px sans-serif';
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(v, padL - 4, yp);
+      });
+
+      // X labels
+      ctx.fillStyle = COLORS.text;
+      ctx.font = '10px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      const step = Math.ceil(labels.length / 6);
+      labels.forEach((lbl, i) => {
+        if (i % step !== 0 && i !== labels.length - 1) return;
+        const xp = px(padL + (i / Math.max(labels.length - 1, 1)) * chartW);
+        ctx.fillText(lbl, xp, H - padB + 4);
+      });
+
+      // Draw each dataset
+      datasets.forEach((ds, di) => {
+        if (this._legendVisible[di] === false) return;
+        const points = ds.data || [];
+        const color = ds.borderColor || '#4488ff';
+        const yid = ds.yAxisID || 'y';
+        const scl = options.scales?.[yid] || {};
+        const sMin = scl.min ?? 0, sMax = scl.max ?? 100;
+        const yPos = (v) => {
+          if (v == null || isNaN(v)) return null;
+          return px(padT + chartH - ((v - sMin) / (sMax - sMin)) * chartH);
+        };
+        const xPos = (i) => px(padL + (i / Math.max(points.length - 1, 1)) * chartW);
+
+        // Fill
+        if (ds.fill && ds.backgroundColor) {
+          ctx.beginPath();
+          let started = false;
+          points.forEach((v, i) => {
+            const yp = yPos(v), xp = xPos(i);
+            if (yp === null) return;
+            if (!started) { ctx.moveTo(xp, yp); started = true; }
+            else { ctx.lineTo(xp, yp); }
+          });
+          if (started) {
+            ctx.lineTo(xPos(points.length - 1), padT + chartH);
+            ctx.lineTo(padL, padT + chartH);
+            ctx.closePath();
+            ctx.fillStyle = ds.backgroundColor;
+            ctx.fill();
+          }
+        }
+
+        // Line
+        ctx.beginPath();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        if (ds.borderDash) ctx.setLineDash(ds.borderDash);
+        else ctx.setLineDash([]);
+        let moved = false;
+        points.forEach((v, i) => {
+          const yp = yPos(v), xp = xPos(i);
+          if (yp === null) { moved = false; return; }
+          if (!moved) { ctx.moveTo(xp, yp); moved = true; }
+          else { ctx.lineTo(xp, yp); }
+        });
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Dots
+        ctx.fillStyle = color;
+        points.forEach((v, i) => {
+          const yp = yPos(v), xp = xPos(i);
+          if (yp === null) return;
+          ctx.beginPath(); ctx.arc(xp, yp, 3, 0, Math.PI * 2); ctx.fill();
+        });
+      });
+    }
+
+    _renderVBar(data, options) {
+      // Vertical bar (unused but provided for completeness)
+      this._renderLine({ ...data, datasets: data.datasets.map(d => ({ ...d, type:'line' })) }, options);
+    }
+  }
+
+  global.Chart = MiniChart;
+})(window);
+</script>
+</body>
+</html>
