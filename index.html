@@ -586,7 +586,8 @@ function parseCSVText(text) {
     }
     const row = { date, close };
     // 信用倍率 — 空でも行を捨てない（タイムラグ考慮: 最新の有効値を後で採用）
-    // 優先順位: 信用買残/売残 → 融資残高/貸株残高(計算) → 貸借倍率(直接値)
+    // 優先順位: 信用買残/売残 → 貸借倍率(既計算値) → 融資残高/貸株残高(範囲検証付き)
+    // 楽天CSVは融資/貸株が異なる単位の場合があるため貸借倍率を優先し、>100は異常値として除外
     let creditRatioVal = null;
     if (idxBuy >= 0 && idxSell >= 0) {
       const buy = parseNum(cols[idxBuy] || '');
@@ -596,17 +597,17 @@ function parseCSVText(text) {
         creditRatioVal = buy / sell;
       }
     }
+    if (creditRatioVal == null && idxRatio >= 0) {
+      const ratio = parseNum(cols[idxRatio] || '');
+      if (!isNaN(ratio) && ratio > 0 && ratio <= 100) creditRatioVal = ratio;
+    }
     if (creditRatioVal == null && idxFuushi >= 0 && idxKashi >= 0) {
       const fuushi = parseNum(cols[idxFuushi] || '');
       const kashi  = parseNum(cols[idxKashi]  || '');
       if (!isNaN(fuushi) && !isNaN(kashi) && fuushi > 0 && kashi > 0) {
-        row.creditBuy = fuushi; row.creditSell = kashi;
-        creditRatioVal = fuushi / kashi;
+        const computed = fuushi / kashi;
+        if (computed <= 100) { row.creditBuy = fuushi; row.creditSell = kashi; creditRatioVal = computed; }
       }
-    }
-    if (creditRatioVal == null && idxRatio >= 0) {
-      const ratio = parseNum(cols[idxRatio] || '');
-      if (!isNaN(ratio) && ratio > 0) creditRatioVal = ratio;
     }
     if (creditRatioVal != null) row.creditRatio = creditRatioVal;
     rows.push(row);
@@ -630,18 +631,22 @@ function computeIndicators(rows, prevCreditRatio) {
   const latestClose = closes[n - 1];
   const ma75Disparity = (ma75Ok && ma75) ? calcDisparity(latestClose, ma75) : null;
 
-  // 最新の信用残データを探す（タイムラグ対応: 後ろから検索）
-  let creditRatio = null;
-  let creditOk = false;
-  for (let i = rows.length - 1; i >= 0; i--) {
+  // 最新と直前の信用倍率をCSV内から取得（週次比較はCSV内完結を優先、不足時はlocalStorage前週値）
+  let creditRatio = null, prevCreditRatioFromCsv = null;
+  let creditOk = false, foundCount = 0;
+  for (let i = rows.length - 1; i >= 0 && foundCount < 2; i--) {
     if (rows[i].creditRatio != null) {
-      creditRatio = rows[i].creditRatio;
-      creditOk = true;
-      break;
+      if (foundCount === 0) { creditRatio = rows[i].creditRatio; creditOk = true; }
+      else                  { prevCreditRatioFromCsv = rows[i].creditRatio; }
+      foundCount++;
     }
   }
-  const creditRatioWeekChange = (creditOk && prevCreditRatio != null)
-    ? calcCreditChange(creditRatio, prevCreditRatio) : null;
+  const basePrev = prevCreditRatioFromCsv ?? prevCreditRatio;
+  let creditRatioWeekChange = (creditOk && basePrev != null)
+    ? calcCreditChange(creditRatio, basePrev) : null;
+  if (creditRatioWeekChange != null) {
+    creditRatioWeekChange = Math.max(-100, Math.min(100, creditRatioWeekChange));
+  }
 
   const latestDate = rows[n - 1].date;
   return {
@@ -1209,7 +1214,7 @@ async function processCSVFile(file) {
     const codes = Object.keys(_csvIndicators);
     let previewHTML = `<div style="margin-top:8px;font-size:12px;color:var(--green)">解析完了: ${rows.length}行 (週ID: ${_currentWeekId})</div>`;
     previewHTML += `<table class="csv-preview-table"><thead><tr>
-      <th>銘柄</th><th>終値</th><th>RSI</th><th>乖離%</th><th>信用変化%</th>
+      <th>銘柄</th><th>終値</th><th>RSI</th><th>乖離%</th><th>信用倍率</th><th>信用変化%</th>
     </tr></thead><tbody>`;
     codes.forEach(code => {
       const ind = _csvIndicators[code];
@@ -1218,6 +1223,7 @@ async function processCSVFile(file) {
         <td>${ind.close != null ? fmtNum(ind.close) : '—'}</td>
         <td>${ind.rsiOk ? fmt(ind.rsi) : '—'}</td>
         <td>${ind.ma75Ok ? fmt(ind.ma75Disparity) : '—'}</td>
+        <td>${ind.creditRatio != null ? fmt(ind.creditRatio, 2) : '—'}</td>
         <td>${ind.creditRatioWeekChange != null ? fmt(ind.creditRatioWeekChange) : '—'}</td>
       </tr>`;
     });
@@ -1513,6 +1519,20 @@ function runTests() {
   const rakutenCSV2 = `日付,終値,貸借倍率\n2026/06/01,24200,1.25\n`;
   const rResult2 = parseCSVText(rakutenCSV2);
   assert('楽天CSV 貸借倍率のみ→直接採用', rResult2.rows.length === 1 && approxEq(rResult2.rows[0].creditRatio, 1.25, 0.01));
+  // 貸借倍率優先: 融資/貸株=1.25と貸借倍率=1.50が共存→貸借倍率(1.50)を採用
+  const csvPr = `日付,終値,融資残高,貸株残高,貸借倍率\n2026/06/01,1000,100000,80000,1.50\n`;
+  const prRes = parseCSVText(csvPr);
+  assert('貸借倍率優先(融資/貸株=1.25より貸借倍率=1.50)', prRes.rows.length === 1 && approxEq(prRes.rows[0].creditRatio, 1.50, 0.01));
+  // 融資/貸株で100超は異常値として除外
+  const csvBig = `日付,終値,融資残高,貸株残高\n2026/06/01,1000,1000000,1\n`;
+  const bigRes = parseCSVText(csvBig);
+  assert('融資/貸株 >100は異常値除外', bigRes.rows.length === 1 && bigRes.rows[0].creditRatio == null);
+  // computeIndicators: CSV内2値で週次比較 + ±100%クランプ
+  const ci2 = computeIndicators(
+    [{ date: '2026-05-30', close: 1000, creditRatio: 0.01 }, { date: '2026-06-06', close: 1010, creditRatio: 1.50 }],
+    null
+  );
+  assert('CSV内2値で週次比較しクランプ@+100', ci2.creditRatioWeekChange === 100, `got ${ci2.creditRatioWeekChange}`);
 
   // --- Test 11: LocalStorage 保存・復元・52週FIFO ---
   const testKey = 'rotation_v3_weeks';
