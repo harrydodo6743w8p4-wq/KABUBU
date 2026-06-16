@@ -420,12 +420,13 @@ function calcTickerScore(m) {
     if (m.creditRatioWeekChange <= -10) creditScore = 15;
     else if (m.creditRatioWeekChange < 10) creditScore = 5;
   }
-  let earningsScore = 0;
+  // null(未設定)=「当面決算リスクなし」とみなし満点(+25)、直前リスク減点なし
+  let earningsScore = 25;
   const dte = m.daysToEarnings;
   if (dte != null) {
     if (dte >= 15) earningsScore = 25;
     else if (dte >= 8) earningsScore = 10;
-    // <=7: 0 + 直前リスク
+    else earningsScore = 0; // <=7日: 直前リスク
   }
   let finalScore = rsiScore + dispScore + creditScore + earningsScore;
   if (dte != null && dte <= 7) finalScore -= 20;
@@ -1504,26 +1505,29 @@ function runTests() {
   assert('calcThemeScore cap at 100',  calcThemeScore('熱狂', ['上方修正','上方修正','上方修正']) <= 100);
 
   // --- Test 6: calcTickerScore 境界値 ---
-  // RSI境界 34.9 → 30
-  assert('RSI 34.9→30', calcTickerScore({ rsi:34.9, ma75Disparity:null, creditRatioWeekChange:null, daysToEarnings:null }) === 30);
-  // RSI境界 35 → 20
-  assert('RSI 35→20', calcTickerScore({ rsi:35, ma75Disparity:null, creditRatioWeekChange:null, daysToEarnings:null }) === 20);
-  // RSI境界 45 → 10
-  assert('RSI 45→10', calcTickerScore({ rsi:45, ma75Disparity:null, creditRatioWeekChange:null, daysToEarnings:null }) === 10);
-  // RSI境界 55 → 0
-  assert('RSI 55→0',  calcTickerScore({ rsi:55, ma75Disparity:null, creditRatioWeekChange:null, daysToEarnings:null }) === 0);
-  // 乖離境界 -15 → 20(not 30)
-  assert('乖離 -15→20', calcTickerScore({ rsi:null, ma75Disparity:-15, creditRatioWeekChange:null, daysToEarnings:null }) === 20);
-  // 乖離 < -15 → 30
-  assert('乖離 -15.1→30', calcTickerScore({ rsi:null, ma75Disparity:-15.1, creditRatioWeekChange:null, daysToEarnings:null }) === 30);
-  // 乖離 -5 → 10
-  assert('乖離 -5→10', calcTickerScore({ rsi:null, ma75Disparity:-5, creditRatioWeekChange:null, daysToEarnings:null }) === 10);
-  // 乖離 0 → 0
-  assert('乖離 0→0', calcTickerScore({ rsi:null, ma75Disparity:0, creditRatioWeekChange:null, daysToEarnings:null }) === 0);
-  // 信用変化 -10 → 15
-  assert('信用 -10→15', calcTickerScore({ rsi:null, ma75Disparity:null, creditRatioWeekChange:-10, daysToEarnings:null }) === 15);
-  // 信用変化 10 → 0
-  assert('信用 +10→0', calcTickerScore({ rsi:null, ma75Disparity:null, creditRatioWeekChange:10, daysToEarnings:null }) === 0);
+  // null決算=+25が加算されるため合計値で検証(RSI/乖離/信用スコア + 25)
+  // RSI境界 34.9(+25null決算) → 55
+  assert('RSI 34.9→55', calcTickerScore({ rsi:34.9, ma75Disparity:null, creditRatioWeekChange:null, daysToEarnings:null }) === 55);
+  // RSI境界 35(+25null決算) → 45
+  assert('RSI 35→45', calcTickerScore({ rsi:35, ma75Disparity:null, creditRatioWeekChange:null, daysToEarnings:null }) === 45);
+  // RSI境界 45(+25null決算) → 35
+  assert('RSI 45→35', calcTickerScore({ rsi:45, ma75Disparity:null, creditRatioWeekChange:null, daysToEarnings:null }) === 35);
+  // RSI境界 55(+25null決算) → 25
+  assert('RSI 55→25',  calcTickerScore({ rsi:55, ma75Disparity:null, creditRatioWeekChange:null, daysToEarnings:null }) === 25);
+  // 乖離境界 -15(+25null決算) → 45
+  assert('乖離 -15→45', calcTickerScore({ rsi:null, ma75Disparity:-15, creditRatioWeekChange:null, daysToEarnings:null }) === 45);
+  // 乖離 < -15(+25null決算) → 55
+  assert('乖離 -15.1→55', calcTickerScore({ rsi:null, ma75Disparity:-15.1, creditRatioWeekChange:null, daysToEarnings:null }) === 55);
+  // 乖離 -5(+25null決算) → 35
+  assert('乖離 -5→35', calcTickerScore({ rsi:null, ma75Disparity:-5, creditRatioWeekChange:null, daysToEarnings:null }) === 35);
+  // 乖離 0(+25null決算) → 25
+  assert('乖離 0→25', calcTickerScore({ rsi:null, ma75Disparity:0, creditRatioWeekChange:null, daysToEarnings:null }) === 25);
+  // 信用変化 -10(+25null決算) → 40
+  assert('信用 -10→40', calcTickerScore({ rsi:null, ma75Disparity:null, creditRatioWeekChange:-10, daysToEarnings:null }) === 40);
+  // 信用変化 10(+25null決算) → 25
+  assert('信用 +10→25', calcTickerScore({ rsi:null, ma75Disparity:null, creditRatioWeekChange:10, daysToEarnings:null }) === 25);
+  // 決算予定日 未設定(null) → earningsScore=+25、直前リスク減点なし
+  assert('決算null→+25', calcTickerScore({ rsi:null, ma75Disparity:null, creditRatioWeekChange:null, daysToEarnings:null }) === 25);
   // 決算 15日 → +25
   assert('決算 15日→+25', calcTickerScore({ rsi:null, ma75Disparity:null, creditRatioWeekChange:null, daysToEarnings:15 }) === 25);
   // 決算 14日 → +10
