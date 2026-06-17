@@ -176,6 +176,12 @@ textarea.form-input{width:100%;height:56px;resize:none;text-align:left}
 .empty-state{text-align:center;padding:32px 16px;color:var(--text2);font-size:14px}
 .divider{height:1px;background:var(--border);margin:12px 0}
 .section-label{font-size:12px;font-weight:700;color:var(--yellow);text-transform:uppercase;letter-spacing:.08em;margin:16px 0 8px;font-family:Georgia,'Times New Roman',serif}
+
+/* POCKET WATCH */
+#pocket-watch{position:fixed;top:calc(env(safe-area-inset-top) + 50px);right:12px;z-index:90;line-height:0}
+.pocket-watch-wrap{cursor:pointer;-webkit-tap-highlight-color:transparent;display:block;transition:opacity .15s}
+.pocket-watch-wrap:active{opacity:.7}
+.watch-tooltip{position:absolute;right:0;top:calc(100% + 6px);background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:8px 12px;font-size:11px;color:var(--text2);width:190px;line-height:1.5;font-style:italic;box-shadow:0 2px 8px rgba(0,0,0,.5);pointer-events:none}
 </style>
 </head>
 <body>
@@ -278,6 +284,39 @@ textarea.form-input{width:100%;height:56px;resize:none;text-align:left}
     <div class="modal-metrics" id="modal-metrics"></div>
     <div class="chart-wrap"><canvas id="modal-chart" class="chart-canvas"></canvas></div>
     <div class="modal-memo" id="modal-memo" style="display:none"></div>
+  </div>
+</div>
+
+<!-- POCKET WATCH (dashboard only, position:fixed) -->
+<div id="pocket-watch" style="display:none">
+  <div class="pocket-watch-wrap"
+       onmouseenter="showWatchTooltip()"
+       onmouseleave="hideWatchTooltip()"
+       onclick="toggleWatchTooltip()">
+    <svg viewBox="0 0 44 56" width="44" height="56" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <!-- Chain ring -->
+      <ellipse cx="22" cy="5" rx="3.5" ry="2.5" fill="none" stroke="#4E4A38" stroke-width="1.5"/>
+      <!-- Crown knob -->
+      <rect x="20" y="8" width="4" height="9" rx="1" fill="#4E4A38"/>
+      <!-- Outer bezel -->
+      <circle cx="22" cy="36" r="18" fill="#201F1D" stroke="#B5A642" stroke-width="1.5"/>
+      <!-- Watch face -->
+      <circle cx="22" cy="36" r="15" fill="#252421" stroke="#4E4A38" stroke-width="0.5"/>
+      <!-- Tick marks: 12, 3, 6, 9 -->
+      <line x1="22" y1="21" x2="22" y2="24" stroke="#9A8E6E" stroke-width="1.5" stroke-linecap="round"/>
+      <line x1="37" y1="36" x2="34" y2="36" stroke="#9A8E6E" stroke-width="1.5" stroke-linecap="round"/>
+      <line x1="22" y1="51" x2="22" y2="48" stroke="#9A8E6E" stroke-width="1.5" stroke-linecap="round"/>
+      <line x1="7"  y1="36" x2="10" y2="36" stroke="#9A8E6E" stroke-width="1.5" stroke-linecap="round"/>
+      <!-- Hands (hidden when no data) — 10:10 pose -->
+      <g id="watch-hands">
+        <line id="watch-hand-h" x1="22" y1="36" x2="15" y2="32" stroke="#B5A642" stroke-width="2.5" stroke-linecap="round"/>
+        <line id="watch-hand-m" x1="22" y1="36" x2="32" y2="31" stroke="#B5A642" stroke-width="1.5" stroke-linecap="round"/>
+        <circle id="watch-center" cx="22" cy="36" r="1.5" fill="#B5A642"/>
+      </g>
+    </svg>
+  </div>
+  <div id="watch-tooltip" class="watch-tooltip" style="display:none">
+    <span id="watch-tooltip-text"></span>
   </div>
 </div>
 
@@ -384,6 +423,23 @@ function calcDaysToEarnings(dateStr) {
   const targetMs = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
   const diff = Math.round((targetMs - todayMs) / 86400000);
   return diff >= 0 ? diff : null;
+}
+
+/**
+ * 最終保存日からの経過日数を計算し鮮度レベルを返す（純粋関数・テスト可能）
+ * @param {string|null} lastUpdatedISO — ISO日時文字列、またはnull
+ * @returns {{ days:number, level:'gold'|'yellow'|'red' }|null}
+ */
+function calcFreshnessLevel(lastUpdatedISO) {
+  if (!lastUpdatedISO) return null;
+  const saved = new Date(lastUpdatedISO);
+  const today = new Date();
+  const savedDay  = new Date(saved.getFullYear(), saved.getMonth(), saved.getDate()).getTime();
+  const todayDay  = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+  const days = Math.max(0, Math.round((todayDay - savedDay) / 86400000));
+  if (days <= 3) return { days, level: 'gold'   };
+  if (days <= 6) return { days, level: 'yellow' };
+  return           { days, level: 'red'    };
 }
 
 /**
@@ -797,6 +853,58 @@ let _modalChart = null; // Chart instance for modal
 let _currentWeekId = null; // 今週の週ID (CSV解析後にセット)
 let _csvIndicators = {}; // code -> indicators (CSV解析後)
 let _csvErrors = []; // CSV解析エラー
+let _watchTooltipVisible = false;
+
+/* ------- POCKET WATCH ------- */
+function renderPocketWatch() {
+  const el = document.getElementById('pocket-watch');
+  if (!el) return;
+  el.style.display = '';
+
+  const meta = getMeta();
+  const freshness = calcFreshnessLevel(meta.lastUpdated || null);
+
+  const colorMap = { gold: '#B5A642', yellow: '#D4A017', red: '#C04030' };
+  const handColor = freshness ? colorMap[freshness.level] : '#58584C';
+
+  let tooltipText;
+  if (!freshness) {
+    tooltipText = 'まだ一度も記帳がございません';
+  } else if (freshness.level === 'gold') {
+    tooltipText = freshness.days === 0
+      ? '記録は最新でございます。よき塩梅かと'
+      : `最終点検より${freshness.days}日。記録は新鮮でございます`;
+  } else if (freshness.level === 'yellow') {
+    tooltipText = `最終点検より${freshness.days}日。そろそろ新たな電信を受信なさってはいかがでしょう`;
+  } else {
+    tooltipText = `最終点検より${freshness.days}日が経過。針も赤に。どうかネジを巻き直しなさいませ`;
+  }
+
+  const ttEl = document.getElementById('watch-tooltip-text');
+  if (ttEl) ttEl.textContent = tooltipText;
+
+  ['watch-hand-h', 'watch-hand-m'].forEach(id => {
+    const e = document.getElementById(id);
+    if (e) e.setAttribute('stroke', handColor);
+  });
+  const ctr = document.getElementById('watch-center');
+  if (ctr) ctr.setAttribute('fill', handColor);
+
+  const handsGroup = document.getElementById('watch-hands');
+  if (handsGroup) handsGroup.style.display = freshness ? '' : 'none';
+}
+
+function showWatchTooltip() {
+  document.getElementById('watch-tooltip').style.display = 'block';
+  _watchTooltipVisible = true;
+}
+function hideWatchTooltip() {
+  document.getElementById('watch-tooltip').style.display = 'none';
+  _watchTooltipVisible = false;
+}
+function toggleWatchTooltip() {
+  if (_watchTooltipVisible) hideWatchTooltip(); else showWatchTooltip();
+}
 
 /* ------- NAVIGATE ------- */
 function navigate(screen) {
@@ -804,6 +912,9 @@ function navigate(screen) {
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
   document.getElementById('screen-' + screen).classList.add('active');
   document.getElementById('nav-' + screen).classList.add('active');
+  const watchEl = document.getElementById('pocket-watch');
+  if (watchEl) watchEl.style.display = screen === 'dashboard' ? '' : 'none';
+  hideWatchTooltip();
   if (screen === 'dashboard') renderDashboard();
   if (screen === 'input')     renderInputScreen();
 }
@@ -830,6 +941,7 @@ function renderDashboard() {
   const weeks = getWeeks();
   const ids = getSortedWeekIds();
   updateSaveInfoBanner();
+  renderPocketWatch();
   if (ids.length === 0) {
     document.getElementById('empty-state').style.display = 'block';
     document.getElementById('theme-ranking').innerHTML = '';
@@ -1785,6 +1897,20 @@ function runTests() {
   assert('validateBackupJSON: null→NG', validateBackupJSON(null).ok === false);
   assert('validateBackupJSON: 空object→NG', validateBackupJSON({}).ok === false);
   assert('validateBackupJSON: 配列→NG', validateBackupJSON([]).ok === false);
+
+  // --- Test 16: calcFreshnessLevel 境界値 ---
+  function makePastISO(daysAgo) {
+    const d = new Date(); d.setHours(12, 0, 0, 0); d.setDate(d.getDate() - daysAgo);
+    return d.toISOString();
+  }
+  assert('freshness null→null', calcFreshnessLevel(null) === null);
+  assert('freshness 0日→gold',   calcFreshnessLevel(makePastISO(0))?.level  === 'gold');
+  assert('freshness 3日→gold',   calcFreshnessLevel(makePastISO(3))?.level  === 'gold');
+  assert('freshness 4日→yellow', calcFreshnessLevel(makePastISO(4))?.level  === 'yellow');
+  assert('freshness 6日→yellow', calcFreshnessLevel(makePastISO(6))?.level  === 'yellow');
+  assert('freshness 7日→red',    calcFreshnessLevel(makePastISO(7))?.level  === 'red');
+  assert('freshness 14日→red',   calcFreshnessLevel(makePastISO(14))?.level === 'red');
+  assert('freshness days数値',   typeof calcFreshnessLevel(makePastISO(5))?.days === 'number');
 
   // --- 結果表示 ---
   const pass = results.filter(r => r.pass).length;
