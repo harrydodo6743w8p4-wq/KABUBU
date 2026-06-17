@@ -205,10 +205,13 @@ textarea.form-input{width:100%;height:56px;resize:none;text-align:left}
 
   <div id="ticker-sections"></div>
 
+  <input type="file" id="import-file" accept=".json" style="display:none" onchange="importData(this.files[0]);this.value=''">
   <div class="btn-row">
-    <button class="btn btn-export" onclick="exportData()">JSONエクスポート</button>
+    <button class="btn btn-export" onclick="exportData()">写本を作成</button>
+    <button class="btn btn-export" onclick="document.getElementById('import-file').click()">記録簿を開く</button>
     <button class="btn btn-export" onclick="clearData()" style="color:var(--red)">データリセット</button>
   </div>
+  <div id="backup-status" style="display:none;margin-top:8px;font-size:13px;text-align:center;font-style:italic"></div>
 
   <div class="empty-state" id="empty-state" style="display:none">
     <p style="font-size:32px;margin-bottom:8px">📊</p>
@@ -1422,21 +1425,76 @@ function saveWeekData() {
   }
 }
 
-/* ------- EXPORT / RESET ------- */
-function exportData() {
-  const data = {
+/* ------- EXPORT / IMPORT / RESET ------- */
+
+/** 全LocalStorageデータを1オブジェクトにまとめる（純粋関数・テスト可能）*/
+function gatherBackupData() {
+  return {
     meta: getMeta(),
     weeks: getWeeks(),
     settings: getSettings(),
     exportedAt: new Date().toISOString(),
+    schemaVersion: CONFIG.SCHEMA_VERSION,
   };
+}
+
+/** バックアップJSONの最低限の形式を検証する（純粋関数・テスト可能）*/
+function validateBackupJSON(obj) {
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj))
+    return { ok: false, reason: 'JSONオブジェクトではございません' };
+  if (!obj.weeks && !obj.meta)
+    return { ok: false, reason: 'weeks / meta キーが見当たりません' };
+  return { ok: true };
+}
+
+function showBackupStatus(msg, type) {
+  const el = document.getElementById('backup-status');
+  if (!el) return;
+  el.style.display = 'block';
+  el.style.color = type === 'red' ? 'var(--red)' : 'var(--green)';
+  el.textContent = msg;
+  setTimeout(() => { el.style.display = 'none'; }, 5000);
+}
+
+function exportData() {
+  const data = gatherBackupData();
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `rotation_v3_${new Date().toISOString().slice(0,10)}.json`;
+  a.download = `KABUBU_写本_${new Date().toISOString().slice(0, 10)}.json`;
   a.click();
   URL.revokeObjectURL(url);
+  showBackupStatus('写本の作成、滞りなく相済みましてございます', 'green');
+}
+
+function importData(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    let obj;
+    try {
+      obj = JSON.parse(e.target.result);
+    } catch (_) {
+      showBackupStatus('申し訳ございません――JSONの解析に失敗いたしました。ファイルをご確認くださいませ', 'red');
+      return;
+    }
+    const { ok, reason } = validateBackupJSON(obj);
+    if (!ok) {
+      showBackupStatus(`記録簿の形式が正しくございません: ${reason}`, 'red');
+      return;
+    }
+    if (!confirm('記録簿を書き換えますが、よろしゅうございますか？\n（現在のデータは上書きされてしまいます）')) return;
+    if (obj.meta)     lsSet(CONFIG.LS_META, obj.meta);
+    if (obj.weeks)    lsSet(CONFIG.LS_WEEKS, obj.weeks);
+    if (obj.settings) lsSet(CONFIG.LS_SETTINGS, obj.settings);
+    navigate('dashboard');
+    showBackupStatus('記録簿の復元、滞りなく相済みましてございます', 'green');
+  };
+  reader.onerror = () => {
+    showBackupStatus('ファイルの読み込みに失敗いたしました', 'red');
+  };
+  reader.readAsText(file);
 }
 
 function clearData() {
@@ -1711,6 +1769,22 @@ function runTests() {
   // データなし → クラッシュせず文字列を返す
   const cNoData = generateLadyComment(mkTd(null, undefined, null, undefined, null, undefined, null));
   assert('コメント データなし→文字列返却', typeof cNoData === 'string' && cNoData.length > 0, cNoData);
+
+  // --- Test 14: gatherBackupData ---
+  const bd = gatherBackupData();
+  assert('gatherBackupData: weeks キー存在', 'weeks' in bd);
+  assert('gatherBackupData: meta キー存在', 'meta' in bd);
+  assert('gatherBackupData: settings キー存在', 'settings' in bd);
+  assert('gatherBackupData: exportedAt は文字列', typeof bd.exportedAt === 'string');
+  assert('gatherBackupData: schemaVersion 一致', bd.schemaVersion === CONFIG.SCHEMA_VERSION);
+
+  // --- Test 15: validateBackupJSON ---
+  assert('validateBackupJSON: weeks+meta→OK', validateBackupJSON({ weeks: {}, meta: {} }).ok === true);
+  assert('validateBackupJSON: weeks のみ→OK', validateBackupJSON({ weeks: {} }).ok === true);
+  assert('validateBackupJSON: meta のみ→OK', validateBackupJSON({ meta: {} }).ok === true);
+  assert('validateBackupJSON: null→NG', validateBackupJSON(null).ok === false);
+  assert('validateBackupJSON: 空object→NG', validateBackupJSON({}).ok === false);
+  assert('validateBackupJSON: 配列→NG', validateBackupJSON([]).ok === false);
 
   // --- 結果表示 ---
   const pass = results.filter(r => r.pass).length;
