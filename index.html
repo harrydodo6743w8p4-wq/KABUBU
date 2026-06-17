@@ -504,6 +504,18 @@ function calcMarketTemperature(avgScore) {
     message: '市場は沸き立っております。逸る気持ちこそ、最も危うき投資でございます。どうか冷静に' };
 }
 
+function calcRsiDelta(curRsi, prevRsi) {
+  if (curRsi == null || prevRsi == null) return null;
+  return Math.round((curRsi - prevRsi) * 10) / 10;
+}
+
+function calcRsiDeltaAdj(rsi, rsiDelta) {
+  if (rsi == null || rsiDelta == null) return 0;
+  if (rsiDelta >= 15 && rsi >= 70) return -10;
+  if (rsiDelta >= 10 && rsi >= 70) return -5;
+  return 0;
+}
+
 /**
  * テーマスコア (0–100)
  * @param {string} toggle '熱狂'|'流入'|'中立'|'流出'
@@ -552,7 +564,9 @@ function calcTickerScore(m) {
   }
   let finalScore = rsiScore + dispScore + creditScore + earningsScore;
   if (dte != null && dte <= 7) finalScore -= 20;
-  return Math.max(0, Math.min(100, finalScore));
+  const rsiDeltaAdj = calcRsiDeltaAdj(m.rsi, m.rsiDelta ?? null);
+  if (rsiDeltaAdj !== 0) console.debug(`[ΔRSI adj] ${m.rsiDelta >= 0 ? '+' : ''}${m.rsiDelta} → ${rsiDeltaAdj}点`);
+  return Math.max(0, Math.min(100, finalScore + rsiDeltaAdj));
 }
 
 /**
@@ -566,8 +580,9 @@ function classifySignal(ctx) {
   if (acquiredPrice != null && currentClose != null && acquiredPrice > 0) {
     if ((currentClose / acquiredPrice - 1) * 100 <= -12) return 'purple';
   }
-  // 2. Blue: RSI >= 75 AND 乖離 >= +20%
+  // 2. Blue: RSI >= 75 AND 乖離 >= +20%、またはΔRSI急騰(+15以上)かつ高RSI(70以上)
   if (rsi != null && rsi >= 75 && ma75Disparity != null && ma75Disparity >= 20) return 'blue';
+  if (rsi != null && rsi >= 70 && ctx.rsiDelta != null && ctx.rsiDelta >= 15) return 'blue';
   // 3. Red: theme >= 70 AND ticker >= 75 AND consensus != 下方修正
   if (themeScore >= 70 && tickerScore >= 75 && consensus !== '下方修正') return 'red';
   // 4. Yellow: theme >= 60 AND 65 <= ticker <= 74
@@ -620,6 +635,12 @@ function generateLadyComment(t) {
     else             p1 = `75日線乖離は${dF}でございます`;
   } else {
     p1 = `数値データはまだ揃っておりません`;
+  }
+
+  // ΔRSI急騰警告（前週比+15以上かつRSI70以上で過熱加速）
+  const rsiDelta = t.rsiDelta ?? null;
+  if (rsiDelta != null && rsiDelta >= 15 && rsi != null && rsi >= 70) {
+    p1 += `　RSIが週間で${rsiDelta >= 0 ? '+' : ''}${fmt(rsiDelta)}と急騰しております。バンドウォークの兆し、いっそうのご用心を`;
   }
 
   // Part2: 決算・信用（最急のもの1件）
@@ -1132,12 +1153,15 @@ function renderTickerBoard(latestId, weeks, settings) {
   const tickerResults = [];
   Object.entries(CONFIG.TICKERS).forEach(([code, info]) => {
     const td = curWeek.tickers?.[code] || {};
+    const prevTd = prevWeek ? (prevWeek.tickers?.[code] || {}) : null;
     const themeScore = themeScores[info.theme] || 0;
+    const rsiDelta = calcRsiDelta(td.rsi ?? null, prevTd?.rsi ?? null);
     const metrics = {
       rsi: td.rsi ?? null,
       ma75Disparity: td.ma75Disparity ?? null,
       creditRatioWeekChange: td.creditRatioWeekChange ?? null,
       daysToEarnings: td.daysToEarnings ?? null,
+      rsiDelta,
     };
     const tickerScore = calcTickerScore(metrics);
     const signal = classifySignal({
@@ -1147,8 +1171,9 @@ function renderTickerBoard(latestId, weeks, settings) {
       consensus: td.consensus || '据置',
       acquiredPrice: settings.userAcquiredPrices?.[code] ?? null,
       currentClose: td.close ?? null,
+      rsiDelta,
     });
-    tickerResults.push({ code, info, td, themeScore, tickerScore, signal, metrics });
+    tickerResults.push({ code, info, td, themeScore, tickerScore, signal, metrics, rsiDelta });
   });
 
   // alert section (blue/purple)
@@ -1181,6 +1206,10 @@ function renderTickerBoard(latestId, weeks, settings) {
 function tickerCardHTML(t) {
   const sm = CONFIG.SIGNAL_META[t.signal];
   const rsiStr = t.td.rsiOk === false ? '—' : fmt(t.td.rsi);
+  const rsiDelta = t.rsiDelta ?? null;
+  const rsiDeltaStr = rsiDelta != null
+    ? ` <span style="font-size:9px;color:${rsiDelta >= 15 ? '#C04030' : rsiDelta >= 5 ? '#B5A642' : rsiDelta <= -15 ? '#5C8BA5' : 'var(--text2)'}">(前週比 ${rsiDelta >= 0 ? '+' : ''}${fmt(rsiDelta)})</span>`
+    : '';
   const dispStr = t.td.ma75Ok === false ? '—' : fmt(t.td.ma75Disparity);
   const credStr = t.td.creditOk === false ? '—' : (t.td.creditRatioWeekChange != null ? fmt(t.td.creditRatioWeekChange) + '%' : '—');
   const dteStr = t.td.daysToEarnings != null ? t.td.daysToEarnings + '日' : '—';
@@ -1198,7 +1227,7 @@ function tickerCardHTML(t) {
     <div class="ticker-code">${t.code}</div>
     <div class="ticker-score">${t.tickerScore}</div>
     <div class="ticker-metrics">
-      RSI <b>${rsiStr}</b> | 乖離 <b>${dispStr}%</b><br>
+      RSI <b>${rsiStr}</b>${rsiDeltaStr} | 乖離 <b>${dispStr}%</b><br>
       信用変化 <b>${credStr}</b> | 決算 <b>${dteStr}</b>
     </div>
     ${dqWarn}<div class="ticker-comment">${generateLadyComment(t)}</div>
@@ -2030,6 +2059,22 @@ function runTests() {
   assert('MktTemp 79→active', calcMarketTemperature(79).level  === 'active');
   assert('MktTemp 80→hot',    calcMarketTemperature(80).level  === 'hot');
   assert('MktTemp 100→hot',   calcMarketTemperature(100).level === 'hot');
+
+  // --- Test 19: calcRsiDelta / calcRsiDeltaAdj / ΔRSI補正 ---
+  assert('ΔRSI 両値あり+15',   calcRsiDelta(75, 60) === 15);
+  assert('ΔRSI 下落-15',       calcRsiDelta(50, 65) === -15);
+  assert('ΔRSI 前週null',      calcRsiDelta(75, null) === null);
+  assert('ΔRSI 今週null',      calcRsiDelta(null, 60) === null);
+  assert('RsiAdj 急騰+高RSI',  calcRsiDeltaAdj(72, 15) === -10);
+  assert('RsiAdj 中程度急騰',  calcRsiDeltaAdj(72, 10) === -5);
+  assert('RsiAdj 急騰+低RSI',  calcRsiDeltaAdj(65, 15) === 0);
+  assert('RsiAdj 前週なし',    calcRsiDeltaAdj(75, null) === 0);
+  const mSpike  = { rsi:72, ma75Disparity:null, creditRatioWeekChange:null, daysToEarnings:null, rsiDelta:15 };
+  const mNoPrev = { rsi:72, ma75Disparity:null, creditRatioWeekChange:null, daysToEarnings:null, rsiDelta:null };
+  assert('スコア急騰時減点あり', calcTickerScore(mSpike) < calcTickerScore(mNoPrev));
+  assert('前週なしは補正なし',   calcTickerScore(mNoPrev) === calcTickerScore({ rsi:72, ma75Disparity:null, creditRatioWeekChange:null, daysToEarnings:null }));
+  assert('blue ΔRSI急騰',       classifySignal({ tickerScore:50, themeScore:50, rsi:70, ma75Disparity:5, consensus:'据置', acquiredPrice:null, currentClose:null, rsiDelta:15 }) === 'blue');
+  assert('ΔRSI null→blue不発',  classifySignal({ tickerScore:50, themeScore:50, rsi:70, ma75Disparity:5, consensus:'据置', acquiredPrice:null, currentClose:null, rsiDelta:null }) !== 'blue');
 
   // --- 結果表示 ---
   const pass = results.filter(r => r.pass).length;
