@@ -207,6 +207,31 @@ textarea.form-input{width:100%;height:56px;resize:none;text-align:left}
     <span id="memo-text"></span>
   </div>
 
+  <div class="card" id="market-temp-card" style="display:none">
+    <div style="display:flex;align-items:center;gap:12px">
+      <svg viewBox="0 0 20 72" width="20" height="72" aria-hidden="true" style="flex-shrink:0">
+        <rect x="7" y="4" width="6" height="46" rx="3" fill="#252421" stroke="#4E4A38" stroke-width="1"/>
+        <circle cx="10" cy="60" r="9" fill="#252421" stroke="#4E4A38" stroke-width="1"/>
+        <rect id="thermo-fill-tube" x="8" y="50" width="4" height="0" rx="1"/>
+        <circle id="thermo-fill-bulb" cx="10" cy="60" r="7" fill="#58584C"/>
+        <line x1="2" y1="32" x2="7" y2="32" stroke="#9A8E6E" stroke-width="1"/>
+        <line x1="2" y1="22" x2="7" y2="22" stroke="#9A8E6E" stroke-width="1"/>
+        <line x1="2" y1="13" x2="7" y2="13" stroke="#9A8E6E" stroke-width="1"/>
+      </svg>
+      <div style="flex:1;min-width:0">
+        <div class="card-title" style="margin-bottom:4px">市場温度計 <span class="tag">Market Temp</span></div>
+        <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:6px">
+          <span id="market-temp-label" style="font-size:20px;font-weight:800;font-family:Georgia,'Times New Roman',serif"></span>
+          <span id="market-temp-score" style="font-size:12px;color:var(--text2)"></span>
+        </div>
+        <div style="height:6px;background:var(--bg3);border-radius:3px;overflow:hidden;margin-bottom:6px">
+          <div id="market-temp-bar-fill" style="height:100%;border-radius:3px;width:0%;transition:width .4s"></div>
+        </div>
+        <div id="market-temp-msg" style="font-size:11px;color:var(--text2);font-style:italic;line-height:1.5"></div>
+      </div>
+    </div>
+  </div>
+
   <div class="card">
     <div class="card-title">テーマモメンタム <span class="tag">Δスコア順</span></div>
     <div id="theme-ranking"></div>
@@ -466,6 +491,17 @@ function calcDataQuality(td) {
   if (score === 3) return { score, level: 'good',      label: 'Good'      };
   if (score === 2) return { score, level: 'fair',      label: 'Fair'      };
   return            { score, level: 'poor',      label: 'Poor'      };
+}
+
+function calcMarketTemperature(avgScore) {
+  if (avgScore < 40) return { level: 'cold',   label: '冷徹',   color: '#5C8BA5',
+    message: '市場は冷え込んでおります。火室の石炭も静かなものでございますな' };
+  if (avgScore < 60) return { level: 'calm',   label: '穏やか', color: '#4E7845',
+    message: '市場は落ち着いた呼吸をしております。好機を静かにお待ちくださいませ' };
+  if (avgScore < 80) return { level: 'active', label: '活況',   color: '#B5A642',
+    message: '市場に熱気が漂い始めております。機関車の汽笛が聞こえますな' };
+  return              { level: 'hot',    label: '熱狂',   color: '#C04030',
+    message: '市場は沸き立っております。逸る気持ちこそ、最も危うき投資でございます。どうか冷静に' };
 }
 
 /**
@@ -962,6 +998,28 @@ function updateSaveInfoBanner() {
   }
 }
 
+/* ------- MARKET TEMPERATURE ------- */
+function renderMarketTemperature(themeData) {
+  const card = document.getElementById('market-temp-card');
+  if (!card) return;
+  if (!themeData || themeData.length === 0) { card.style.display = 'none'; return; }
+  const avg = Math.round(themeData.reduce((s, td) => s + td.score, 0) / themeData.length);
+  const temp = calcMarketTemperature(avg);
+  card.style.display = '';
+  document.getElementById('market-temp-label').textContent = temp.label;
+  document.getElementById('market-temp-label').style.color = temp.color;
+  document.getElementById('market-temp-score').textContent = `(平均スコア ${avg})`;
+  document.getElementById('market-temp-bar-fill').style.width      = `${avg}%`;
+  document.getElementById('market-temp-bar-fill').style.background = temp.color;
+  document.getElementById('market-temp-msg').textContent = temp.message;
+  const fillH = Math.round((avg / 100) * 46);
+  const fillY = 50 - fillH;
+  const ft = document.getElementById('thermo-fill-tube');
+  if (ft) { ft.setAttribute('y', String(fillY)); ft.setAttribute('height', String(Math.max(0, fillH))); ft.setAttribute('fill', temp.color); }
+  const fb = document.getElementById('thermo-fill-bulb');
+  if (fb) fb.setAttribute('fill', temp.color);
+}
+
 /* ------- DASHBOARD ------- */
 function renderDashboard() {
   const weeks = getWeeks();
@@ -974,6 +1032,8 @@ function renderDashboard() {
     document.getElementById('ticker-sections').innerHTML = '';
     document.getElementById('alert-section').style.display = 'none';
     document.getElementById('memo-banner').style.display = 'none';
+    const mtCard = document.getElementById('market-temp-card');
+    if (mtCard) mtCard.style.display = 'none';
     return;
   }
   document.getElementById('empty-state').style.display = 'none';
@@ -994,6 +1054,7 @@ function renderDashboard() {
 
   // Compute theme scores
   const themeData = computeThemeData(curWeek, prevWeek);
+  renderMarketTemperature(themeData);
 
   // Sort by Δスコア (降順)、同値は絶対スコア降順
   themeData.sort((a, b) => {
@@ -1959,6 +2020,16 @@ function runTests() {
   assert('DQ score=4',         calcDataQuality(mkDQ(true, true, true, true)).score === 4);
   assert('DQ score=2',         calcDataQuality(mkDQ(true, true, false, false)).score === 2);
   assert('DQ label文字列',     typeof calcDataQuality(mkDQ(true, true, true, true)).label === 'string');
+
+  // --- Test 18: calcMarketTemperature ---
+  assert('MktTemp 0→cold',    calcMarketTemperature(0).level   === 'cold');
+  assert('MktTemp 39→cold',   calcMarketTemperature(39).level  === 'cold');
+  assert('MktTemp 40→calm',   calcMarketTemperature(40).level  === 'calm');
+  assert('MktTemp 59→calm',   calcMarketTemperature(59).level  === 'calm');
+  assert('MktTemp 60→active', calcMarketTemperature(60).level  === 'active');
+  assert('MktTemp 79→active', calcMarketTemperature(79).level  === 'active');
+  assert('MktTemp 80→hot',    calcMarketTemperature(80).level  === 'hot');
+  assert('MktTemp 100→hot',   calcMarketTemperature(100).level === 'hot');
 
   // --- 結果表示 ---
   const pass = results.filter(r => r.pass).length;
