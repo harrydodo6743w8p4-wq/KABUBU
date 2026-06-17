@@ -177,6 +177,14 @@ textarea.form-input{width:100%;height:56px;resize:none;text-align:left}
 .divider{height:1px;background:var(--border);margin:12px 0}
 .section-label{font-size:12px;font-weight:700;color:var(--yellow);text-transform:uppercase;letter-spacing:.08em;margin:16px 0 8px;font-family:Georgia,'Times New Roman',serif}
 
+/* DATA QUALITY BADGES */
+.dq-badge{display:inline-block;font-size:9px;font-weight:700;padding:2px 5px;border-radius:4px;letter-spacing:.04em;vertical-align:middle;margin-left:4px;font-family:Georgia,'Times New Roman',serif;font-style:normal}
+.dq-excellent{background:rgba(181,166,66,.18);color:#B5A642;border:1px solid rgba(181,166,66,.35)}
+.dq-good{background:rgba(78,120,69,.18);color:#6aaa60;border:1px solid rgba(78,120,69,.35)}
+.dq-fair{background:rgba(154,142,110,.12);color:#9A8E6E;border:1px solid rgba(154,142,110,.3)}
+.dq-poor{background:rgba(192,64,48,.15);color:#c06050;border:1px solid rgba(192,64,48,.3)}
+.dq-warn{font-size:10px;color:var(--text2);margin-top:4px;margin-bottom:2px;line-height:1.5;font-style:italic}
+
 /* POCKET WATCH */
 #pocket-watch{position:fixed;top:calc(env(safe-area-inset-top) + 50px);right:12px;z-index:90;line-height:0}
 .pocket-watch-wrap{cursor:pointer;-webkit-tap-highlight-color:transparent;display:block;transition:opacity .15s}
@@ -440,6 +448,24 @@ function calcFreshnessLevel(lastUpdatedISO) {
   if (days <= 3) return { days, level: 'gold'   };
   if (days <= 6) return { days, level: 'yellow' };
   return           { days, level: 'red'    };
+}
+
+/**
+ * 銘柄のデータ充足度を4段階評価する（純粋関数・テスト可能）
+ * 評価項目: RSI算出可 / 75日線乖離算出可 / 信用変化算出可 / 決算予定日入力済
+ * @param {{ rsiOk, rsi, ma75Ok, ma75Disparity, creditOk, creditRatioWeekChange, daysToEarnings }} td
+ * @returns {{ score:number, level:'excellent'|'good'|'fair'|'poor', label:string }}
+ */
+function calcDataQuality(td) {
+  let score = 0;
+  if (td.rsiOk !== false && td.rsi != null)                      score++;
+  if (td.ma75Ok !== false && td.ma75Disparity != null)           score++;
+  if (td.creditOk !== false && td.creditRatioWeekChange != null) score++;
+  if (td.daysToEarnings != null)                                 score++;
+  if (score === 4) return { score, level: 'excellent', label: 'Excellent' };
+  if (score === 3) return { score, level: 'good',      label: 'Good'      };
+  if (score === 2) return { score, level: 'fair',      label: 'Fair'      };
+  return            { score, level: 'poor',      label: 'Poor'      };
 }
 
 /**
@@ -1097,20 +1123,24 @@ function tickerCardHTML(t) {
   const dispStr = t.td.ma75Ok === false ? '—' : fmt(t.td.ma75Disparity);
   const credStr = t.td.creditOk === false ? '—' : (t.td.creditRatioWeekChange != null ? fmt(t.td.creditRatioWeekChange) + '%' : '—');
   const dteStr = t.td.daysToEarnings != null ? t.td.daysToEarnings + '日' : '—';
+  const dq = calcDataQuality(t.td);
+  const dqWarn = (dq.level === 'fair' || dq.level === 'poor')
+    ? `<div class="dq-warn">この銘柄、資料が一部欠けております。判断は割り引いてご覧くださいませ</div>`
+    : '';
   let reason = '';
   if (t.signal === 'red') {
     reason = `<div class="ticker-reason">${buildRedReason(t.code, t.info.theme, t.td.rsi, t.td.ma75Disparity)}</div>`;
   }
   return `<div class="ticker-card ${sm.cls}" onclick="openModal('${t.code}')">
     <div class="ticker-sig">${sm.emoji} ${sm.label}</div>
-    <div class="ticker-name">${t.info.name}</div>
+    <div class="ticker-name">${t.info.name} <span class="dq-badge dq-${dq.level}">${dq.label}</span></div>
     <div class="ticker-code">${t.code}</div>
     <div class="ticker-score">${t.tickerScore}</div>
     <div class="ticker-metrics">
       RSI <b>${rsiStr}</b> | 乖離 <b>${dispStr}%</b><br>
       信用変化 <b>${credStr}</b> | 決算 <b>${dteStr}</b>
     </div>
-    <div class="ticker-comment">${generateLadyComment(t)}</div>
+    ${dqWarn}<div class="ticker-comment">${generateLadyComment(t)}</div>
     ${reason}
   </div>`;
 }
@@ -1911,6 +1941,24 @@ function runTests() {
   assert('freshness 7日→red',    calcFreshnessLevel(makePastISO(7))?.level  === 'red');
   assert('freshness 14日→red',   calcFreshnessLevel(makePastISO(14))?.level === 'red');
   assert('freshness days数値',   typeof calcFreshnessLevel(makePastISO(5))?.days === 'number');
+
+  // --- Test 17: calcDataQuality ---
+  function mkDQ(rsiOk, ma75Ok, creditOk, hasEarnings) {
+    return {
+      rsiOk, rsi: rsiOk ? 50 : null,
+      ma75Ok, ma75Disparity: ma75Ok ? -5 : null,
+      creditOk, creditRatioWeekChange: creditOk ? -3 : null,
+      daysToEarnings: hasEarnings ? 30 : null,
+    };
+  }
+  assert('DQ 4項目→Excellent', calcDataQuality(mkDQ(true, true, true, true)).level  === 'excellent');
+  assert('DQ 3項目→Good',      calcDataQuality(mkDQ(true, true, true, false)).level === 'good');
+  assert('DQ 2項目→Fair',      calcDataQuality(mkDQ(true, true, false, false)).level === 'fair');
+  assert('DQ 1項目→Poor',      calcDataQuality(mkDQ(true, false, false, false)).level === 'poor');
+  assert('DQ 0項目→Poor',      calcDataQuality(mkDQ(false, false, false, false)).level === 'poor');
+  assert('DQ score=4',         calcDataQuality(mkDQ(true, true, true, true)).score === 4);
+  assert('DQ score=2',         calcDataQuality(mkDQ(true, true, false, false)).score === 2);
+  assert('DQ label文字列',     typeof calcDataQuality(mkDQ(true, true, true, true)).label === 'string');
 
   // --- 結果表示 ---
   const pass = results.filter(r => r.pass).length;
