@@ -203,7 +203,7 @@ textarea.form-input{width:100%;height:56px;resize:none;text-align:left}
 <div class="screen active" id="screen-dashboard">
   <div class="memo-banner" id="save-info-banner" style="display:none;border-left-color:var(--green)"></div>
   <div class="memo-banner" id="memo-banner" style="display:none">
-    <strong>今週のシナリオメモ</strong>
+    <strong>未来備忘録</strong>
     <span id="memo-text"></span>
   </div>
 
@@ -289,8 +289,8 @@ textarea.form-input{width:100%;height:56px;resize:none;text-align:left}
     <div id="ticker-adjustments"></div>
     <div class="divider"></div>
     <div class="form-row" style="flex-direction:column;align-items:flex-start;gap:6px">
-      <div class="form-label">今週のシナリオメモ</div>
-      <textarea class="form-input" id="input-memo" placeholder="例: FOMCを前に様子見。SOX調整中で半導体は打診買い水準。"></textarea>
+      <div class="form-label">未来備忘録</div>
+      <textarea class="form-input" id="input-memo" placeholder="マイ・ロード、今週の所見を一筆（例: AIの過熱感が気になる、銀行に資金が逃げ始めた 等）"></textarea>
     </div>
     <div class="divider"></div>
     <button class="btn btn-primary" id="save-btn" onclick="saveWeekData()" disabled>保存する</button>
@@ -1065,13 +1065,11 @@ function renderDashboard() {
   const prevWeek = prevId ? weeks[prevId] : null;
   const settings = getSettings();
 
-  // Memo banner
-  if (curWeek.memo) {
-    document.getElementById('memo-banner').style.display = 'block';
-    document.getElementById('memo-text').textContent = curWeek.memo;
-  } else {
-    document.getElementById('memo-banner').style.display = 'none';
-  }
+  // 未来備忘録
+  document.getElementById('memo-banner').style.display = 'block';
+  document.getElementById('memo-text').textContent = curWeek.memo
+    ? curWeek.memo
+    : 'マイ・ロード、本日の所見はまだ承っておりません';
 
   // Compute theme scores
   const themeData = computeThemeData(curWeek, prevWeek);
