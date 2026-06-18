@@ -202,6 +202,10 @@ textarea.form-input{width:100%;height:56px;resize:none;text-align:left}
 <!-- SCREEN: DASHBOARD -->
 <div class="screen active" id="screen-dashboard">
   <div class="memo-banner" id="save-info-banner" style="display:none;border-left-color:var(--green)"></div>
+  <div class="memo-banner" id="climate-banner" style="display:none">
+    <strong>本日の空模様</strong>
+    <span id="climate-text"></span>
+  </div>
   <div class="memo-banner" id="memo-banner" style="display:none">
     <strong>未来備忘録</strong>
     <span id="memo-text"></span>
@@ -287,6 +291,11 @@ textarea.form-input{width:100%;height:56px;resize:none;text-align:left}
   <div class="card">
     <div class="step-header"><div class="step-num">3</div><div class="step-title">銘柄補正・保存</div></div>
     <div id="ticker-adjustments"></div>
+    <div class="divider"></div>
+    <div class="form-row" style="flex-direction:column;align-items:flex-start;gap:6px">
+      <div class="form-label">本日の空模様</div>
+      <div class="toggle-group" id="climate-toggles"></div>
+    </div>
     <div class="divider"></div>
     <div class="form-row" style="flex-direction:column;align-items:flex-start;gap:6px">
       <div class="form-label">未来備忘録</div>
@@ -396,6 +405,24 @@ const CONFIG = {
     yellow: { emoji:'🟡', label:'打診',  cls:'sig-yellow' },
     white:  { emoji:'⬜', label:'静観',  cls:'sig-white'  },
   },
+  // 本日の空模様（週1回のマクロ市場環境）
+  CLIMATE_OPTIONS: [
+    { id: 'clear',  emoji: '☀', label: '快晴（リスクオン）' },
+    { id: 'cloudy', emoji: '☁', label: '曇り（中立・通常）' },
+    { id: 'rain',   emoji: '🌧', label: '雨（警戒）' },
+    { id: 'storm',  emoji: '⛈', label: '嵐（暴落・パニック）' },
+  ],
+  CLIMATE_DEFAULT: 'cloudy',
+  // 地盤: テーマ別の暴落耐性（1=弱い〜5=強い、後で調整しやすいようCONFIG化）
+  GROUND: {
+    'AI・半導体': 1,
+    'AIインフラ・電力再建': 4,
+    '金利正常化・金融': 5,
+    '国策・防衛・宇宙': 3,
+    'エンタメ・製品サイクル': 4,
+  },
+  // 嵐のときのみ作動する、地盤値→個別スコア補正テーブル（地盤3を中立点とする控えめ設定）
+  STORM_ADJ_BY_GROUND: { 1: -14, 2: -9, 3: 0, 4: 2, 5: 6 },
 };
 
 // ============================================================
@@ -588,6 +615,27 @@ function classifySignal(ctx) {
   // 4. Yellow: theme >= 60 AND 65 <= ticker <= 74
   if (themeScore >= 60 && tickerScore >= 65 && tickerScore <= 74) return 'yellow';
   return 'white';
+}
+
+/** テーマIDから「地盤」(暴落耐性)値を取得。未定義は null */
+function getGroundValue(themeId) {
+  const theme = CONFIG.THEMES.find(t => t.id === themeId);
+  if (!theme) return null;
+  const v = CONFIG.GROUND[theme.name];
+  return v != null ? v : null;
+}
+
+/** 本日の空模様による個別スコアへの補正値。嵐の時のみ作動し、テーマスコア・各配点には影響しない */
+function calcClimateAdj(climate, groundValue) {
+  if (climate !== 'storm') return 0;
+  if (groundValue == null) return 0;
+  const adj = CONFIG.STORM_ADJ_BY_GROUND[groundValue];
+  return adj != null ? adj : 0;
+}
+
+/** 個別スコアへ空模様補正を適用し0-100にクランプする後段補正（純粋関数） */
+function applyClimateAdj(tickerScore, climateAdj) {
+  return Math.max(0, Math.min(100, tickerScore + climateAdj));
 }
 
 /** 理由テキスト自動生成 (red シグナル用) */
@@ -1053,6 +1101,7 @@ function renderDashboard() {
     document.getElementById('ticker-sections').innerHTML = '';
     document.getElementById('alert-section').style.display = 'none';
     document.getElementById('memo-banner').style.display = 'none';
+    document.getElementById('climate-banner').style.display = 'none';
     const mtCard = document.getElementById('market-temp-card');
     if (mtCard) mtCard.style.display = 'none';
     return;
@@ -1064,6 +1113,15 @@ function renderDashboard() {
   const prevId = ids.length > 1 ? ids[ids.length - 2] : null;
   const prevWeek = prevId ? weeks[prevId] : null;
   const settings = getSettings();
+
+  // 本日の空模様
+  const climate = curWeek.climate || CONFIG.CLIMATE_DEFAULT;
+  const climateOpt = CONFIG.CLIMATE_OPTIONS.find(c => c.id === climate)
+    || CONFIG.CLIMATE_OPTIONS.find(c => c.id === CONFIG.CLIMATE_DEFAULT);
+  document.getElementById('climate-banner').style.display = 'block';
+  document.getElementById('climate-text').textContent = climate === 'storm'
+    ? `${climateOpt.emoji} ${climateOpt.label} — 本日は荒天にございます。地盤の弱きセクターには、いっそうの慎重さを`
+    : `${climateOpt.emoji} ${climateOpt.label}`;
 
   // 未来備忘録
   document.getElementById('memo-banner').style.display = 'block';
@@ -1147,6 +1205,9 @@ function renderTickerBoard(latestId, weeks, settings) {
   const themeData = computeThemeData(curWeek, prevWeek);
   themeData.forEach(td => { themeScores[td.theme.id] = td.score; });
 
+  // 本日の空模様（嵐の時のみ、各銘柄の最終スコアに後段補正を適用。テーマスコア・各配点には影響しない）
+  const climate = curWeek.climate || CONFIG.CLIMATE_DEFAULT;
+
   // 各銘柄のシグナル・スコアを計算
   const tickerResults = [];
   Object.entries(CONFIG.TICKERS).forEach(([code, info]) => {
@@ -1162,8 +1223,11 @@ function renderTickerBoard(latestId, weeks, settings) {
       rsiDelta,
     };
     const tickerScore = calcTickerScore(metrics);
+    const groundValue = getGroundValue(info.theme);
+    const climateAdj = calcClimateAdj(climate, groundValue);
+    const finalScore = applyClimateAdj(tickerScore, climateAdj);
     const signal = classifySignal({
-      tickerScore, themeScore,
+      tickerScore: finalScore, themeScore,
       rsi: td.rsi ?? null,
       ma75Disparity: td.ma75Disparity ?? null,
       consensus: td.consensus || '据置',
@@ -1171,7 +1235,7 @@ function renderTickerBoard(latestId, weeks, settings) {
       currentClose: td.close ?? null,
       rsiDelta,
     });
-    tickerResults.push({ code, info, td, themeScore, tickerScore, signal, metrics, rsiDelta });
+    tickerResults.push({ code, info, td, themeScore, tickerScore, climateAdj, finalScore, signal, metrics, rsiDelta });
   });
 
   // alert section (blue/purple)
@@ -1219,11 +1283,15 @@ function tickerCardHTML(t) {
   if (t.signal === 'red') {
     reason = `<div class="ticker-reason">${buildRedReason(t.code, t.info.theme, t.td.rsi, t.td.ma75Disparity)}</div>`;
   }
+  const climateAdjStr = t.climateAdj
+    ? `<div style="font-size:10px;color:var(--text2);margin-top:-4px;margin-bottom:4px">${t.tickerScore} →（⛈空模様補正 ${t.climateAdj > 0 ? '+' : ''}${t.climateAdj}）→ ${t.finalScore}</div>`
+    : '';
   return `<div class="ticker-card ${sm.cls}" onclick="openModal('${t.code}')">
     <div class="ticker-sig">${sm.emoji} ${sm.label}</div>
     <div class="ticker-name">${t.info.name} <span class="dq-badge dq-${dq.level}">${dq.label}</span></div>
     <div class="ticker-code">${t.code}</div>
-    <div class="ticker-score">${t.tickerScore}</div>
+    <div class="ticker-score">${t.finalScore}</div>
+    ${climateAdjStr}
     <div class="ticker-metrics">
       RSI <b>${rsiStr}</b>${rsiDeltaStr} | 乖離 <b>${dispStr}%</b><br>
       信用変化 <b>${credStr}</b> | 決算 <b>${dteStr}</b>
@@ -1252,8 +1320,12 @@ function openModal(code) {
     daysToEarnings: td.daysToEarnings ?? null,
   };
   const tickerScore = calcTickerScore(metrics);
+  const climate = curWeek.climate || CONFIG.CLIMATE_DEFAULT;
+  const groundValue = getGroundValue(info.theme);
+  const climateAdj = calcClimateAdj(climate, groundValue);
+  const finalScore = applyClimateAdj(tickerScore, climateAdj);
   const signal = classifySignal({
-    tickerScore, themeScore,
+    tickerScore: finalScore, themeScore,
     rsi: td.rsi ?? null, ma75Disparity: td.ma75Disparity ?? null,
     consensus: td.consensus || '据置',
     acquiredPrice: settings.userAcquiredPrices?.[code] ?? null,
@@ -1262,8 +1334,11 @@ function openModal(code) {
   const sm = CONFIG.SIGNAL_META[signal];
 
   document.getElementById('modal-title').textContent = `${info.name} (${code})`;
+  const scoreText = climateAdj
+    ? `${tickerScore} →（⛈空模様補正 ${climateAdj > 0 ? '+' : ''}${climateAdj}）→ ${finalScore}`
+    : `${finalScore}`;
   document.getElementById('modal-subtitle').textContent =
-    `${sm.emoji} ${sm.label} | テーマスコア: ${themeScore} | 個別スコア: ${tickerScore}`;
+    `${sm.emoji} ${sm.label} | テーマスコア: ${themeScore} | 個別スコア: ${scoreText}`;
 
   document.getElementById('modal-metrics').innerHTML = [
     ['RSI', td.rsiOk === false ? '—' : fmt(td.rsi)],
@@ -1281,12 +1356,14 @@ function openModal(code) {
     const w = weeks[id];
     if (!w || !w.tickers?.[code]) return null;
     const wtd = w.tickers[code];
-    return calcTickerScore({
+    const wScore = calcTickerScore({
       rsi: wtd.rsi ?? null,
       ma75Disparity: wtd.ma75Disparity ?? null,
       creditRatioWeekChange: wtd.creditRatioWeekChange ?? null,
       daysToEarnings: wtd.daysToEarnings ?? null,
     });
+    const wClimateAdj = calcClimateAdj(w.climate || CONFIG.CLIMATE_DEFAULT, groundValue);
+    return applyClimateAdj(wScore, wClimateAdj);
   });
   const rsiHist = hist.map(id => {
     const w = weeks[id];
@@ -1335,8 +1412,31 @@ function closeModal(e) {
 /* ------- INPUT SCREEN ------- */
 function renderInputScreen() {
   renderThemeToggles();
+  renderClimateToggles();
   renderTickerAdjustments();
   renderAcquiredPrices();
+  updateSaveBtn();
+}
+
+function renderClimateToggles() {
+  const weeks = getWeeks();
+  const ids = getSortedWeekIds();
+  const prevWeek = ids.length ? weeks[ids[ids.length - 1]] : null;
+  const effectivePrev = getMeta().enteredBy === 'sample' ? null : prevWeek;
+  const savedClimate = effectivePrev?.climate || CONFIG.CLIMATE_DEFAULT;
+
+  const html = CONFIG.CLIMATE_OPTIONS.map(opt => {
+    const activeClass = opt.id === savedClimate ? 'active neutral' : '';
+    return `<button class="toggle-btn ${activeClass}" data-climate="${opt.id}" onclick="selectClimate(this)">${opt.emoji} ${opt.label}</button>`;
+  }).join('');
+  document.getElementById('climate-toggles').innerHTML = html;
+}
+
+function selectClimate(btn) {
+  document.querySelectorAll('.toggle-btn[data-climate]').forEach(b => {
+    b.classList.remove('active', 'neutral');
+  });
+  btn.classList.add('active', 'neutral');
   updateSaveBtn();
 }
 
@@ -1642,8 +1742,10 @@ function saveWeekData() {
   });
 
   const memo = document.getElementById('input-memo').value.trim();
+  const activeClimate = document.querySelector('.toggle-btn.active[data-climate]');
+  const climate = activeClimate?.dataset.climate || CONFIG.CLIMATE_DEFAULT;
 
-  const ok = saveWeek(weekId, { themes, tickers, memo });
+  const ok = saveWeek(weekId, { themes, tickers, memo, climate });
   const statusEl = document.getElementById('save-status');
   if (ok) {
     const now = new Date();
@@ -2073,6 +2175,32 @@ function runTests() {
   assert('前週なしは補正なし',   calcTickerScore(mNoPrev) === calcTickerScore({ rsi:72, ma75Disparity:null, creditRatioWeekChange:null, daysToEarnings:null }));
   assert('blue ΔRSI急騰',       classifySignal({ tickerScore:50, themeScore:50, rsi:70, ma75Disparity:5, consensus:'据置', acquiredPrice:null, currentClose:null, rsiDelta:15 }) === 'blue');
   assert('ΔRSI null→blue不発',  classifySignal({ tickerScore:50, themeScore:50, rsi:70, ma75Disparity:5, consensus:'据置', acquiredPrice:null, currentClose:null, rsiDelta:null }) !== 'blue');
+
+  // --- Test 20: 本日の空模様（地盤補正） ---
+  assert('地盤値: AI半導体→1',     getGroundValue('ai_semi')   === 1);
+  assert('地盤値: 電力再建→4',     getGroundValue('ai_infra')  === 4);
+  assert('地盤値: 金融→5',         getGroundValue('finance')   === 5);
+  assert('地盤値: 防衛→3',         getGroundValue('defense')   === 3);
+  assert('地盤値: エンタメ→4',     getGroundValue('entertain') === 4);
+  // (a) 嵐×地盤1で-14される
+  assert('嵐×地盤1→-14',           calcClimateAdj('storm', 1) === -14);
+  assert('嵐×地盤1 最終スコア反映', applyClimateAdj(72, calcClimateAdj('storm', 1)) === 58);
+  // (b) 嵐×地盤5で+6される
+  assert('嵐×地盤5→+6',            calcClimateAdj('storm', 5) === 6);
+  assert('嵐×地盤5 最終スコア反映', applyClimateAdj(72, calcClimateAdj('storm', 5)) === 78);
+  // 嵐×地盤3(中立)は無補正
+  assert('嵐×地盤3→0',             calcClimateAdj('storm', 3) === 0);
+  // (c) 曇り/快晴では補正されない
+  assert('曇り×地盤1→補正なし',    calcClimateAdj('cloudy', 1) === 0);
+  assert('快晴×地盤1→補正なし',    calcClimateAdj('clear', 1) === 0);
+  assert('雨×地盤1→補正なし',      calcClimateAdj('rain', 1) === 0);
+  assert('未選択(undefined)→補正なし', calcClimateAdj(undefined, 1) === 0);
+  // (d) クランプが効く
+  assert('上限クランプ: 98+嵐地盤5(+6)→100', applyClimateAdj(98, calcClimateAdj('storm', 5)) === 100);
+  assert('下限クランプ: 5+嵐地盤1(-14)→0',   applyClimateAdj(5, calcClimateAdj('storm', 1)) === 0);
+  // テーマスコア・各配点には影響しないことの確認（calcTickerScoreの結果は空模様を知らない）
+  const _mClimate = { rsi:34.9, ma75Disparity:null, creditRatioWeekChange:null, daysToEarnings:null };
+  assert('calcTickerScoreは空模様非依存', calcTickerScore(_mClimate) === 55);
 
   // --- 結果表示 ---
   const pass = results.filter(r => r.pass).length;
