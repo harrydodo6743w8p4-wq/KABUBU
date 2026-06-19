@@ -320,7 +320,7 @@ textarea.form-input{width:100%;height:56px;resize:none;text-align:left}
     <div class="divider"></div>
     <div class="form-row" style="flex-direction:column;align-items:flex-start;gap:6px">
       <div class="form-label">未来備忘録</div>
-      <textarea class="form-input" id="input-memo" placeholder="マイ・ロード、今週の所見を一筆（例: AIの過熱感が気になる、銀行に資金が逃げ始めた 等）"></textarea>
+      <textarea class="form-input" id="input-memo" placeholder="お客様、今週の所見を一筆（例: AIの過熱感が気になる、銀行に資金が逃げ始めた 等）"></textarea>
     </div>
     <div class="divider"></div>
     <button class="btn btn-primary" id="save-btn" onclick="saveWeekData()" disabled>保存する</button>
@@ -1140,7 +1140,7 @@ function renderVoyageLog() {
   const entries = buildVoyageLogEntries(getWeeks(), getSortedWeekIds());
   const body = document.getElementById('voyage-log-body');
   if (entries.length === 0) {
-    body.innerHTML = '<p class="voyage-log-empty">マイ・ロード、まだ航海の記録がございません</p>';
+    body.innerHTML = '<p class="voyage-log-empty">お客様、まだ航海の記録がございません</p>';
     return;
   }
   body.innerHTML = entries.map(e => `
@@ -1189,7 +1189,7 @@ function renderDashboard() {
   document.getElementById('memo-banner').style.display = 'block';
   document.getElementById('memo-text').textContent = curWeek.memo
     ? curWeek.memo
-    : 'マイ・ロード、本日の所見はまだ承っておりません';
+    : 'お客様、本日の所見はまだ承っておりません';
 
   // Compute theme scores
   const themeData = computeThemeData(curWeek, prevWeek);
@@ -1767,7 +1767,16 @@ function detectCodeFromFileName(name) {
 }
 
 /* ------- SAVE ------- */
+/** 今回の入力作業でCSVが1銘柄も読み込まれていないかを判定（純粋関数・テスト可能）*/
+function isCsvUnloaded(csvIndicators) {
+  return Object.keys(csvIndicators || {}).length === 0;
+}
+
 function saveWeekData() {
+  if (isCsvUnloaded(_csvIndicators)) {
+    if (!confirm('お客様、本日の電信（CSV）をまだ受信しておりませんが、よろしいですか？')) return;
+  }
+
   const weekId = _currentWeekId || getWeekId(new Date().toISOString().slice(0, 10));
 
   // テーマデータ収集
@@ -2280,6 +2289,13 @@ function runTests() {
   assert('航海日誌: memoは保存値そのまま', _vEntries[0].memoText === '今週の所見');
   assert('航海日誌: 1週のみでも正しく1件返る', buildVoyageLogEntries({ '2026-06-19': { climate: 'rain', memo: 'm' } }, ['2026-06-19']).length === 1);
   assert('航海日誌: 0週なら空配列', buildVoyageLogEntries({}, []).length === 0);
+
+  // --- Test 22: isCsvUnloaded（CSV未読み込み判定） ---
+  assert('CSV未読込: 空オブジェクト→true', isCsvUnloaded({}) === true);
+  assert('CSV未読込: null→true', isCsvUnloaded(null) === true);
+  assert('CSV未読込: undefined→true', isCsvUnloaded(undefined) === true);
+  assert('CSV未読込: 1銘柄あり→false', isCsvUnloaded({ '7203': {} }) === false);
+  assert('CSV未読込: 複数銘柄あり→false', isCsvUnloaded({ '7203': {}, '9984': {} }) === false);
 
   // --- 結果表示 ---
   const pass = results.filter(r => r.pass).length;
