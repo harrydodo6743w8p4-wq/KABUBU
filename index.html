@@ -2686,6 +2686,7 @@ function spotlightNext() {
 function finishSpotlightAndShowOutro() {
   closeSpotlightGuide();
   setTimeout(() => {
+    window.scrollTo(0, 0);
     navigate('dashboard');
     openOutroTutorial();
   }, 320);
