@@ -90,6 +90,16 @@ body{padding-bottom:env(safe-area-inset-bottom)}
 .tutorial-progress{font-size:12px;color:#888}
 #tutorial-next-btn{width:auto;padding:10px 24px}
 
+/* SPOTLIGHT GUIDE */
+.spotlight-overlay{position:fixed;inset:0;z-index:9990;display:none}
+.spotlight-hole{position:fixed;border-radius:50%;box-shadow:0 0 0 9999px rgba(0,0,0,.78);pointer-events:none;opacity:0;transition:left .3s ease,top .3s ease,width .3s ease,height .3s ease,opacity .3s ease}
+.spotlight-overlay.open .spotlight-hole{opacity:1}
+.spotlight-callout{position:fixed;width:280px;max-width:calc(100vw - 24px);z-index:9991;opacity:0;transition:opacity .35s ease,left .3s ease,top .3s ease}
+.spotlight-overlay.open .spotlight-callout{opacity:1}
+#spotlight-next-btn{width:auto;padding:10px 20px}
+.spotlight-callout .tutorial-controls{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.spotlight-callout .tutorial-skip{position:static}
+
 /* NAV */
 .nav{display:flex;background:var(--bg2);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:100;padding-top:env(safe-area-inset-top)}
 .nav-btn{flex:1;padding:12px 8px;text-align:center;font-size:13px;font-weight:600;color:var(--text2);border:none;background:none;cursor:pointer;min-height:var(--tap)}
@@ -270,8 +280,27 @@ textarea.form-input{width:100%;height:56px;resize:none;text-align:left}
 <nav class="nav" id="nav">
   <button class="nav-btn active" onclick="navigate('dashboard')" id="nav-dashboard">ダッシュボード</button>
   <button class="nav-btn" onclick="navigate('input')" id="nav-input">データ入力</button>
-  <button class="nav-help-btn" onclick="openTutorial()" title="使い方" aria-label="使い方">?</button>
+  <button class="nav-help-btn" onclick="openHelp()" title="使い方" aria-label="使い方">?</button>
 </nav>
+
+<!-- SPOTLIGHT GUIDE (coach-mark style overlay) -->
+<div class="spotlight-overlay" id="spotlight-overlay" style="display:none">
+  <div class="spotlight-hole" id="spotlight-hole"></div>
+  <div class="spotlight-callout" id="spotlight-callout">
+    <div class="tutorial-radio-wrap" style="width:90px;height:90px;margin:0 auto 8px">
+      <div class="tutorial-spark-lines" id="spotlight-spark-lines"><span></span><span></span><span></span></div>
+      <img src="radio.png" alt="" class="tutorial-radio" id="spotlight-radio" onerror="this.style.display='none'">
+    </div>
+    <div class="tutorial-bubble">
+      <div class="tutorial-text" id="spotlight-text"></div>
+    </div>
+    <div class="tutorial-controls" style="margin-top:10px">
+      <button class="tutorial-skip" id="spotlight-close-btn" onclick="closeSpotlightGuide()">閉じる</button>
+      <span class="tutorial-progress" id="spotlight-progress"></span>
+      <button class="btn btn-primary" id="spotlight-next-btn" onclick="spotlightNext()">次へ</button>
+    </div>
+  </div>
+</div>
 
 <!-- TUTORIAL OVERLAY (retro radio guide) -->
 <div class="tutorial-overlay" id="tutorial-overlay" style="display:none">
@@ -2384,6 +2413,17 @@ function runTests() {
   assert('isTutorialSeen: フラグなし(undefined)→false', isTutorialSeen(undefined) === false);
   assert('isTutorialSeen: フラグあり(true)→true', isTutorialSeen(true) === true);
 
+  // --- Test 24: スポットライトガイド（calcSpotlightHoleRect） ---
+  assert('スポットライト: ステップ5件登録', SPOTLIGHT_STEPS.length === 5);
+  const _slRect = { left: 20, top: 100, width: 100, height: 50 };
+  const _slGeo = calcSpotlightHoleRect(_slRect, 14);
+  assert('スポットライト: 幅=対象幅+余白*2', approxEq(_slGeo.width, 100 + 28, 0.01), `got ${_slGeo.width}`);
+  assert('スポットライト: 高さ=対象高さ+余白*2', approxEq(_slGeo.height, 50 + 28, 0.01), `got ${_slGeo.height}`);
+  assert('スポットライト: leftは余白分外側', approxEq(_slGeo.left, 20 - 14, 0.01));
+  assert('スポットライト: topは余白分外側', approxEq(_slGeo.top, 100 - 14, 0.01));
+  assert('スポットライト: 対象を過度に超えない（幅は余白28pxの範囲内）', _slGeo.width - _slRect.width === 28);
+  assert('スポットライト: padding=0なら対象と同サイズ', calcSpotlightHoleRect(_slRect, 0).width === 100 && calcSpotlightHoleRect(_slRect, 0).height === 50);
+
   // --- 結果表示 ---
   const pass = results.filter(r => r.pass).length;
   const fail = results.filter(r => !r.pass).length;
@@ -2527,6 +2567,165 @@ function renderTutorialSlide() {
 
   if (progressEl) progressEl.textContent = `${_tutorialIndex + 1} / ${TUTORIAL_SLIDES.length}`;
   if (nextBtn) nextBtn.textContent = _tutorialIndex === TUTORIAL_SLIDES.length - 1 ? '閉じる' : '次へ';
+}
+
+/** 「?」ボタン押下時：データ入力画面ではスポットライトガイド、それ以外では従来のラジオ案内を出す */
+function openHelp() {
+  const inputScreen = document.getElementById('screen-input');
+  if (inputScreen && inputScreen.classList.contains('active')) {
+    openSpotlightGuide();
+  } else {
+    openTutorial();
+  }
+}
+
+// ============================================================
+// スポットライトガイド（コーチマーク表現）
+// ============================================================
+const SPOTLIGHT_STEPS = [
+  { selector: '#drop-zone', text: 'まずは、ここに楽天証券のCSVファイルを読み込みます。8銘柄分まとめて読み込めます。' },
+  { selector: 'input[data-earnings-date]', text: '各銘柄の決算予定日を入れます。ご不明なら空欄でも構いません。' },
+  { selector: '#climate-toggles', text: '今週の空模様を選びます。相場全体の雰囲気を、お客様の感覚で。' },
+  { selector: '#input-memo', text: '気づいたことは、ここに一筆。後から振り返る航海日誌になります。' },
+  { selector: '#save-btn', text: '最後に保存を押せば完了です。ダッシュボードに各銘柄のスコアが表示されます。' },
+];
+
+let _spotlightIndex = 0;
+let _spotlightRenderGen = 0;
+
+/** スクロール位置が安定するまで待ってからコールバックを呼ぶ（固定待機時間に依存しない） */
+function waitForScrollSettled(callback) {
+  const startTime = performance.now();
+  let lastY = window.scrollY;
+  let stableFrames = 0;
+  function tick() {
+    const y = window.scrollY;
+    const elapsed = performance.now() - startTime;
+    stableFrames = Math.abs(y - lastY) < 0.5 ? stableFrames + 1 : 0;
+    lastY = y;
+    const settled = stableFrames >= 4 && elapsed >= 120;
+    const timedOut = elapsed >= 1500;
+    if (settled || timedOut) { callback(); return; }
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+}
+
+/** ターゲット矩形に余白を加えた、丸く覆い隠す穴の位置・サイズを算出（純粋関数・テスト可能）*/
+function calcSpotlightHoleRect(rect, padding = 14) {
+  return {
+    left: rect.left - padding,
+    top: rect.top - padding,
+    width: rect.width + padding * 2,
+    height: rect.height + padding * 2,
+  };
+}
+
+function openSpotlightGuide() {
+  const overlay = document.getElementById('spotlight-overlay');
+  if (!overlay) return;
+  _spotlightIndex = 0;
+  overlay.style.display = 'block';
+  renderSpotlightStep();
+  window.addEventListener('resize', repositionSpotlight);
+}
+
+function closeSpotlightGuide() {
+  const overlay = document.getElementById('spotlight-overlay');
+  if (!overlay) return;
+  _spotlightRenderGen++;
+  overlay.classList.remove('open');
+  window.removeEventListener('resize', repositionSpotlight);
+  setTimeout(() => { overlay.style.display = 'none'; }, 300);
+}
+
+function spotlightNext() {
+  if (_spotlightIndex >= SPOTLIGHT_STEPS.length - 1) { closeSpotlightGuide(); return; }
+  _spotlightIndex++;
+  renderSpotlightStep();
+}
+
+function positionSpotlightHole(target, hole) {
+  const rect = target.getBoundingClientRect();
+  const geo = calcSpotlightHoleRect(rect, 14);
+  hole.style.left = geo.left + 'px';
+  hole.style.top = geo.top + 'px';
+  hole.style.width = geo.width + 'px';
+  hole.style.height = geo.height + 'px';
+}
+
+function positionSpotlightCallout(hole, callout) {
+  const holeRect = hole.getBoundingClientRect();
+  const vw = window.innerWidth, vh = window.innerHeight;
+  const calloutWidth = callout.offsetWidth || 280;
+  const calloutHeight = callout.offsetHeight || 220;
+
+  let left = holeRect.left + holeRect.width / 2 - calloutWidth / 2;
+  left = Math.max(12, Math.min(left, vw - calloutWidth - 12));
+
+  let top = holeRect.bottom + 16;
+  if (top + calloutHeight + 12 > vh) {
+    top = holeRect.top - calloutHeight - 16;
+    if (top < 12) top = 12;
+  }
+  callout.style.left = left + 'px';
+  callout.style.top = top + 'px';
+}
+
+function repositionSpotlight() {
+  const overlay = document.getElementById('spotlight-overlay');
+  if (!overlay || overlay.style.display === 'none') return;
+  const step = SPOTLIGHT_STEPS[_spotlightIndex];
+  const target = step && document.querySelector(step.selector);
+  const hole = document.getElementById('spotlight-hole');
+  const callout = document.getElementById('spotlight-callout');
+  if (!target || !hole || !callout) return;
+  positionSpotlightHole(target, hole);
+  positionSpotlightCallout(hole, callout);
+}
+
+function renderSpotlightStep() {
+  const step = SPOTLIGHT_STEPS[_spotlightIndex];
+  const overlay = document.getElementById('spotlight-overlay');
+  const hole = document.getElementById('spotlight-hole');
+  const callout = document.getElementById('spotlight-callout');
+  const textEl = document.getElementById('spotlight-text');
+  const progressEl = document.getElementById('spotlight-progress');
+  const nextBtn = document.getElementById('spotlight-next-btn');
+  const radio = document.getElementById('spotlight-radio');
+  const sparkLines = document.getElementById('spotlight-spark-lines');
+  if (!step || !overlay || !hole || !callout) return;
+
+  const target = document.querySelector(step.selector);
+  if (!target) { closeSpotlightGuide(); return; }
+
+  if (progressEl) progressEl.textContent = `${_spotlightIndex + 1} / ${SPOTLIGHT_STEPS.length}`;
+  if (nextBtn) nextBtn.textContent = _spotlightIndex === SPOTLIGHT_STEPS.length - 1 ? '閉じる' : '次へ';
+  if (textEl) textEl.textContent = '';
+
+  // スクロール中は一旦隠し、スクロールが完全に収まってから穴の位置を再計算して合わせる
+  overlay.classList.remove('open');
+  target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+  const gen = ++_spotlightRenderGen;
+  waitForScrollSettled(() => {
+    if (gen !== _spotlightRenderGen) return; // 途中で次のステップへ進んだ場合は無視
+    positionSpotlightHole(target, hole);
+    positionSpotlightCallout(hole, callout);
+    overlay.classList.add('open');
+
+    if (radio) {
+      radio.classList.remove('shake');
+      void radio.offsetWidth;
+      radio.classList.add('shake');
+    }
+    if (sparkLines) {
+      sparkLines.classList.remove('show');
+      void sparkLines.offsetWidth;
+      setTimeout(() => sparkLines.classList.add('show'), 150);
+    }
+    setTimeout(() => { if (textEl) textEl.textContent = step.text; }, 350);
+  });
 }
 
 // ============================================================
