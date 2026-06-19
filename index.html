@@ -54,6 +54,42 @@ body{padding-bottom:env(safe-area-inset-bottom)}
 #opening-video{width:100%;height:100%;object-fit:contain;background:#fff;opacity:0;transition:opacity .25s ease}
 #opening-video.visible{opacity:1}
 
+/* TUTORIAL */
+.nav-help-btn{flex:0 0 auto;width:40px;min-height:var(--tap);border:none;background:none;color:var(--text2);font-size:15px;font-weight:700;cursor:pointer}
+.tutorial-overlay{position:fixed;inset:0;z-index:9998;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;padding:24px;opacity:0;transition:opacity .5s ease}
+.tutorial-overlay.open{opacity:1}
+.tutorial-skip{position:absolute;top:calc(env(safe-area-inset-top) + 12px);right:16px;background:none;border:1px solid #ccc;border-radius:8px;padding:6px 12px;font-size:12px;color:#555;cursor:pointer;min-height:var(--tap)}
+.tutorial-stage{display:flex;flex-direction:column;align-items:center;gap:18px;max-width:420px;width:100%;cursor:pointer}
+.tutorial-radio-wrap{position:relative;width:150px;height:150px;display:flex;align-items:center;justify-content:center}
+.tutorial-radio{width:100%;height:100%;object-fit:contain}
+.tutorial-radio.shake{animation:tutorial-shake .4s ease}
+@keyframes tutorial-shake{
+  0%,100%{transform:rotate(0)}
+  20%{transform:rotate(-7deg)}
+  40%{transform:rotate(5deg)}
+  60%{transform:rotate(-3deg)}
+  80%{transform:rotate(2deg)}
+}
+.tutorial-spark-lines{position:absolute;top:-22px;left:50%;transform:translateX(-50%);display:flex;gap:6px;opacity:0;pointer-events:none}
+.tutorial-spark-lines.show{animation:tutorial-spark .5s ease}
+.tutorial-spark-lines span{display:block;width:3px;height:22px;border-radius:2px}
+.tutorial-spark-lines span:nth-child(1){background:#B5A642;transform:rotate(-18deg)}
+.tutorial-spark-lines span:nth-child(2){background:#8FB5A0;transform:rotate(0deg)}
+.tutorial-spark-lines span:nth-child(3){background:#A07AB0;transform:rotate(18deg)}
+@keyframes tutorial-spark{
+  0%{opacity:0;transform:translateX(-50%) scale(.6)}
+  30%{opacity:1;transform:translateX(-50%) scale(1.05)}
+  70%{opacity:1}
+  100%{opacity:0;transform:translateX(-50%) scale(1)}
+}
+.tutorial-bubble{position:relative;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:16px;width:100%;color:var(--text);box-shadow:0 4px 16px rgba(0,0,0,.18);min-height:90px}
+.tutorial-bubble:before{content:'';position:absolute;top:-10px;left:50%;transform:translateX(-50%);border-left:10px solid transparent;border-right:10px solid transparent;border-bottom:10px solid var(--bg2)}
+.tutorial-sfx{font-size:11px;color:var(--text2);margin-bottom:6px;font-style:italic}
+.tutorial-text{font-size:14px;line-height:1.7}
+.tutorial-controls{display:flex;align-items:center;justify-content:space-between;width:100%;max-width:420px}
+.tutorial-progress{font-size:12px;color:#888}
+#tutorial-next-btn{width:auto;padding:10px 24px}
+
 /* NAV */
 .nav{display:flex;background:var(--bg2);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:100;padding-top:env(safe-area-inset-top)}
 .nav-btn{flex:1;padding:12px 8px;text-align:center;font-size:13px;font-weight:600;color:var(--text2);border:none;background:none;cursor:pointer;min-height:var(--tap)}
@@ -234,7 +270,27 @@ textarea.form-input{width:100%;height:56px;resize:none;text-align:left}
 <nav class="nav" id="nav">
   <button class="nav-btn active" onclick="navigate('dashboard')" id="nav-dashboard">ダッシュボード</button>
   <button class="nav-btn" onclick="navigate('input')" id="nav-input">データ入力</button>
+  <button class="nav-help-btn" onclick="openTutorial()" title="使い方" aria-label="使い方">?</button>
 </nav>
+
+<!-- TUTORIAL OVERLAY (retro radio guide) -->
+<div class="tutorial-overlay" id="tutorial-overlay" style="display:none">
+  <button class="tutorial-skip" id="tutorial-skip-btn" onclick="closeTutorial()">閉じる（スキップ）</button>
+  <div class="tutorial-stage" id="tutorial-stage" onclick="tutorialNext()">
+    <div class="tutorial-radio-wrap">
+      <div class="tutorial-spark-lines" id="tutorial-spark-lines"><span></span><span></span><span></span></div>
+      <img src="radio.png" alt="" class="tutorial-radio" id="tutorial-radio" onerror="this.style.display='none'">
+    </div>
+    <div class="tutorial-bubble">
+      <div class="tutorial-sfx" id="tutorial-sfx"></div>
+      <div class="tutorial-text" id="tutorial-text"></div>
+    </div>
+  </div>
+  <div class="tutorial-controls">
+    <span class="tutorial-progress" id="tutorial-progress"></span>
+    <button class="btn btn-primary" id="tutorial-next-btn" onclick="event.stopPropagation();tutorialNext()">次へ</button>
+  </div>
+</div>
 
 <!-- SCREEN: DASHBOARD -->
 <div class="screen active" id="screen-dashboard">
@@ -423,6 +479,7 @@ const CONFIG = {
   LS_META: 'rotation_v3_meta',
   LS_WEEKS: 'rotation_v3_weeks',
   LS_SETTINGS: 'rotation_v3_settings',
+  LS_TUTORIAL_SEEN: 'rotation_v3_tutorial_seen',
   THEMES: [
     { id: 'ai_semi',    name: 'AI・半導体',          leadingLabel: 'SOX',         tickers: ['8035','6525','9984'] },
     { id: 'ai_infra',   name: 'AIインフラ・電力再建', leadingLabel: '電力株指数',   tickers: ['5803','5801'] },
@@ -2321,6 +2378,12 @@ function runTests() {
   assert('CSV未読込: 1銘柄あり→false', isCsvUnloaded({ '7203': {} }) === false);
   assert('CSV未読込: 複数銘柄あり→false', isCsvUnloaded({ '7203': {}, '9984': {} }) === false);
 
+  // --- Test 23: 初回チュートリアル ---
+  assert('チュートリアル: スライド6枚', TUTORIAL_SLIDES.length === 6);
+  assert('isTutorialSeen: フラグなし(null)→false', isTutorialSeen(null) === false);
+  assert('isTutorialSeen: フラグなし(undefined)→false', isTutorialSeen(undefined) === false);
+  assert('isTutorialSeen: フラグあり(true)→true', isTutorialSeen(true) === true);
+
   // --- 結果表示 ---
   const pass = results.filter(r => r.pass).length;
   const fail = results.filter(r => !r.pass).length;
@@ -2359,6 +2422,7 @@ function startOpeningSequence() {
     setTimeout(() => {
       overlay.remove();
       videoWrap.remove();
+      maybeAutoShowTutorial();
     }, 800);
   }
 
@@ -2383,6 +2447,86 @@ function startOpeningSequence() {
       playPromise.catch(() => finishOpening());
     }
   }, { once: true });
+}
+
+// ============================================================
+// 初回チュートリアル（レトロラジオ案内）
+// ============================================================
+const TUTORIAL_SLIDES = [
+  { sfx: '……ザー……ザッ', text: 'ようこそ、KABUBUへ。このアプリは、日本株8銘柄の「買い時」を見極めるための羅針盤です。まずはデータを登録してまいりましょう。' },
+  { sfx: '……ザッ', text: '画面下の「データ入力」を開きます。楽天証券からダウンロードしたCSVファイルを、この枠へ読み込んでください。' },
+  { sfx: '……カチッ', text: '続いて、各銘柄の「決算予定日」を入力します。マーケットスピードⅡなどで確認できますが、ご不明な場合は空欄のままでも問題ありません。' },
+  { sfx: '……ザッ', text: '今週の「空模様」を選びます。お客様が感じる相場全体の雰囲気を選ぶ項目です。この情報も判定に反映されます。' },
+  { sfx: '……♪', text: '気づいたことは、「未来備忘録」へ。後から振り返るための、あなただけの航海日誌として残せます。' },
+  { sfx: '……カチッ　ザー……', text: '最後に「保存」を押せば、今週の準備は完了です。ダッシュボードでは、各銘柄の「今、買い場か」がスコアで表示されます。……それでは、どうぞ良い投資の航海を。' },
+];
+
+let _tutorialIndex = 0;
+
+/** チュートリアル既読フラグの判定（純粋関数・テスト可能）*/
+function isTutorialSeen(flagValue) {
+  return !!flagValue;
+}
+
+function maybeAutoShowTutorial() {
+  if (isTutorialSeen(lsGet(CONFIG.LS_TUTORIAL_SEEN))) return;
+  openTutorial();
+}
+
+function openTutorial() {
+  const overlay = document.getElementById('tutorial-overlay');
+  if (!overlay) return;
+  _tutorialIndex = 0;
+  overlay.style.display = 'flex';
+  requestAnimationFrame(() => overlay.classList.add('open'));
+  renderTutorialSlide();
+}
+
+function closeTutorial() {
+  const overlay = document.getElementById('tutorial-overlay');
+  if (!overlay) return;
+  lsSet(CONFIG.LS_TUTORIAL_SEEN, true);
+  overlay.classList.remove('open');
+  setTimeout(() => { overlay.style.display = 'none'; }, 500);
+}
+
+function tutorialNext() {
+  if (_tutorialIndex >= TUTORIAL_SLIDES.length - 1) { closeTutorial(); return; }
+  _tutorialIndex++;
+  renderTutorialSlide();
+}
+
+function renderTutorialSlide() {
+  const slide = TUTORIAL_SLIDES[_tutorialIndex];
+  if (!slide) return;
+  const radio = document.getElementById('tutorial-radio');
+  const sparkLines = document.getElementById('tutorial-spark-lines');
+  const sfxEl = document.getElementById('tutorial-sfx');
+  const textEl = document.getElementById('tutorial-text');
+  const progressEl = document.getElementById('tutorial-progress');
+  const nextBtn = document.getElementById('tutorial-next-btn');
+
+  if (sfxEl) sfxEl.textContent = '';
+  if (textEl) textEl.textContent = '';
+
+  if (radio) {
+    radio.classList.remove('shake');
+    void radio.offsetWidth; // アニメーション再トリガー
+    radio.classList.add('shake');
+  }
+  if (sparkLines) {
+    sparkLines.classList.remove('show');
+    void sparkLines.offsetWidth;
+    setTimeout(() => sparkLines.classList.add('show'), 150);
+  }
+
+  setTimeout(() => {
+    if (sfxEl) sfxEl.textContent = slide.sfx;
+    if (textEl) textEl.textContent = slide.text;
+  }, 450);
+
+  if (progressEl) progressEl.textContent = `${_tutorialIndex + 1} / ${TUTORIAL_SLIDES.length}`;
+  if (nextBtn) nextBtn.textContent = _tutorialIndex === TUTORIAL_SLIDES.length - 1 ? '閉じる' : '次へ';
 }
 
 // ============================================================
