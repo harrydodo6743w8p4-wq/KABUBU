@@ -2408,7 +2408,7 @@ function runTests() {
   assert('CSV未読込: 複数銘柄あり→false', isCsvUnloaded({ '7203': {}, '9984': {} }) === false);
 
   // --- Test 23: 初回チュートリアル ---
-  assert('チュートリアル: スライド6枚', TUTORIAL_SLIDES.length === 6);
+  assert('チュートリアル: 導入スライド2枚', TUTORIAL_SLIDES.length === 2);
   assert('isTutorialSeen: フラグなし(null)→false', isTutorialSeen(null) === false);
   assert('isTutorialSeen: フラグなし(undefined)→false', isTutorialSeen(undefined) === false);
   assert('isTutorialSeen: フラグあり(true)→true', isTutorialSeen(true) === true);
@@ -2490,15 +2490,11 @@ function startOpeningSequence() {
 }
 
 // ============================================================
-// 初回チュートリアル（レトロラジオ案内）
+// 統合ツアー：導入（レトロラジオ案内）→ 実地案内（スポットライト）
 // ============================================================
 const TUTORIAL_SLIDES = [
-  { sfx: '……ザー……ザッ', text: 'ようこそ、KABUBUへ。このアプリは、日本株8銘柄の「買い時」を見極めるための羅針盤です。まずはデータを登録してまいりましょう。' },
-  { sfx: '……ザッ', text: '画面下の「データ入力」を開きます。楽天証券からダウンロードしたCSVファイルを、この枠へ読み込んでください。' },
-  { sfx: '……カチッ', text: '続いて、各銘柄の「決算予定日」を入力します。マーケットスピードⅡなどで確認できますが、ご不明な場合は空欄のままでも問題ありません。' },
-  { sfx: '……ザッ', text: '今週の「空模様」を選びます。お客様が感じる相場全体の雰囲気を選ぶ項目です。この情報も判定に反映されます。' },
-  { sfx: '……♪', text: '気づいたことは、「未来備忘録」へ。後から振り返るための、あなただけの航海日誌として残せます。' },
-  { sfx: '……カチッ　ザー……', text: '最後に「保存」を押せば、今週の準備は完了です。ダッシュボードでは、各銘柄の「今、買い場か」がスコアで表示されます。……それでは、どうぞ良い投資の航海を。' },
+  { sfx: '……ザー……ザッ', text: 'ようこそ、KABUBUへ。日本株8銘柄の「買い時」を見極める羅針盤です。' },
+  { sfx: '……ザッ', text: 'では、実際の画面でご案内します。データ入力へ参りましょう。' },
 ];
 
 let _tutorialIndex = 0;
@@ -2522,6 +2518,7 @@ function openTutorial() {
   renderTutorialSlide();
 }
 
+/** 導入パートを閉じる（途中スキップ含む）。フラグを立てて以後の自動表示を止める */
 function closeTutorial() {
   const overlay = document.getElementById('tutorial-overlay');
   if (!overlay) return;
@@ -2531,9 +2528,21 @@ function closeTutorial() {
 }
 
 function tutorialNext() {
-  if (_tutorialIndex >= TUTORIAL_SLIDES.length - 1) { closeTutorial(); return; }
+  if (_tutorialIndex >= TUTORIAL_SLIDES.length - 1) { finishIntroAndStartSpotlight(); return; }
   _tutorialIndex++;
   renderTutorialSlide();
+}
+
+/** 導入パート終了 → データ入力画面へ遷移 → スポットライト案内を開始 */
+function finishIntroAndStartSpotlight() {
+  lsSet(CONFIG.LS_TUTORIAL_SEEN, true);
+  const overlay = document.getElementById('tutorial-overlay');
+  if (overlay) {
+    overlay.classList.remove('open');
+    setTimeout(() => { overlay.style.display = 'none'; }, 500);
+  }
+  navigate('input');
+  openSpotlightGuide();
 }
 
 function renderTutorialSlide() {
@@ -2566,17 +2575,12 @@ function renderTutorialSlide() {
   }, 450);
 
   if (progressEl) progressEl.textContent = `${_tutorialIndex + 1} / ${TUTORIAL_SLIDES.length}`;
-  if (nextBtn) nextBtn.textContent = _tutorialIndex === TUTORIAL_SLIDES.length - 1 ? '閉じる' : '次へ';
+  if (nextBtn) nextBtn.textContent = '次へ';
 }
 
-/** 「?」ボタン押下時：データ入力画面ではスポットライトガイド、それ以外では従来のラジオ案内を出す */
+/** 「?」ボタン押下時：常に統合ツアー（導入→データ入力へ遷移→スポットライト案内）を開始する */
 function openHelp() {
-  const inputScreen = document.getElementById('screen-input');
-  if (inputScreen && inputScreen.classList.contains('active')) {
-    openSpotlightGuide();
-  } else {
-    openTutorial();
-  }
+  openTutorial();
 }
 
 // ============================================================
