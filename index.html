@@ -61,8 +61,9 @@ body{padding-bottom:env(safe-area-inset-bottom)}
 .tutorial-skip{position:absolute;top:calc(env(safe-area-inset-top) + 12px);right:16px;background:none;border:1px solid #ccc;border-radius:8px;padding:6px 12px;font-size:12px;color:#555;cursor:pointer;min-height:var(--tap)}
 .tutorial-stage{display:flex;flex-direction:column;align-items:center;gap:18px;max-width:420px;width:100%;cursor:pointer}
 .tutorial-radio-wrap{position:relative;width:150px;height:150px;display:flex;align-items:center;justify-content:center}
-.tutorial-radio{width:100%;height:100%;object-fit:contain}
+.tutorial-radio{width:100%;height:100%;object-fit:contain;transition:opacity 1.8s ease,filter 1.8s ease}
 .tutorial-radio.shake{animation:tutorial-shake .4s ease}
+.tutorial-radio.outro-fade{opacity:.3;filter:grayscale(70%) brightness(.7)}
 @keyframes tutorial-shake{
   0%,100%{transform:rotate(0)}
   20%{transform:rotate(-7deg)}
@@ -2409,6 +2410,7 @@ function runTests() {
 
   // --- Test 23: 初回チュートリアル ---
   assert('チュートリアル: 導入スライド2枚', TUTORIAL_SLIDES.length === 2);
+  assert('チュートリアル: 締めスライド1枚', OUTRO_SLIDES.length === 1);
   assert('isTutorialSeen: フラグなし(null)→false', isTutorialSeen(null) === false);
   assert('isTutorialSeen: フラグなし(undefined)→false', isTutorialSeen(undefined) === false);
   assert('isTutorialSeen: フラグあり(true)→true', isTutorialSeen(true) === true);
@@ -2497,7 +2499,12 @@ const TUTORIAL_SLIDES = [
   { sfx: '……ザッ', text: 'では、実際の画面でご案内します。データ入力へ参りましょう。' },
 ];
 
+const OUTRO_SLIDES = [
+  { sfx: '……カチッ　ザー……', text: 'それでは、どうぞ良い投資の航海を。' },
+];
+
 let _tutorialIndex = 0;
+let _tutorialIsOutro = false;
 
 /** チュートリアル既読フラグの判定（純粋関数・テスト可能）*/
 function isTutorialSeen(flagValue) {
@@ -2512,13 +2519,29 @@ function maybeAutoShowTutorial() {
 function openTutorial() {
   const overlay = document.getElementById('tutorial-overlay');
   if (!overlay) return;
+  _tutorialIsOutro = false;
   _tutorialIndex = 0;
+  const radio = document.getElementById('tutorial-radio');
+  if (radio) radio.classList.remove('outro-fade');
   overlay.style.display = 'flex';
   requestAnimationFrame(() => overlay.classList.add('open'));
   renderTutorialSlide();
 }
 
-/** 導入パートを閉じる（途中スキップ含む）。フラグを立てて以後の自動表示を止める */
+/** 締めパート（ラジオが中央で喋る最後の1枚）を表示する */
+function openOutroTutorial() {
+  const overlay = document.getElementById('tutorial-overlay');
+  if (!overlay) return;
+  _tutorialIsOutro = true;
+  _tutorialIndex = 0;
+  const radio = document.getElementById('tutorial-radio');
+  if (radio) radio.classList.remove('outro-fade');
+  overlay.style.display = 'flex';
+  requestAnimationFrame(() => overlay.classList.add('open'));
+  renderTutorialSlide();
+}
+
+/** 導入/締めパートを閉じる（途中スキップ含む）。フラグを立てて以後の自動表示を止める */
 function closeTutorial() {
   const overlay = document.getElementById('tutorial-overlay');
   if (!overlay) return;
@@ -2528,7 +2551,12 @@ function closeTutorial() {
 }
 
 function tutorialNext() {
-  if (_tutorialIndex >= TUTORIAL_SLIDES.length - 1) { finishIntroAndStartSpotlight(); return; }
+  const deck = _tutorialIsOutro ? OUTRO_SLIDES : TUTORIAL_SLIDES;
+  if (_tutorialIndex >= deck.length - 1) {
+    if (_tutorialIsOutro) { closeTutorial(); return; }
+    finishIntroAndStartSpotlight();
+    return;
+  }
   _tutorialIndex++;
   renderTutorialSlide();
 }
@@ -2546,7 +2574,8 @@ function finishIntroAndStartSpotlight() {
 }
 
 function renderTutorialSlide() {
-  const slide = TUTORIAL_SLIDES[_tutorialIndex];
+  const deck = _tutorialIsOutro ? OUTRO_SLIDES : TUTORIAL_SLIDES;
+  const slide = deck[_tutorialIndex];
   if (!slide) return;
   const radio = document.getElementById('tutorial-radio');
   const sparkLines = document.getElementById('tutorial-spark-lines');
@@ -2572,10 +2601,14 @@ function renderTutorialSlide() {
   setTimeout(() => {
     if (sfxEl) sfxEl.textContent = slide.sfx;
     if (textEl) textEl.textContent = slide.text;
+    // 締めパートでは、放送終了の余韻としてラジオを少しずつ暗く・薄くする
+    if (_tutorialIsOutro && radio) {
+      setTimeout(() => radio.classList.add('outro-fade'), 900);
+    }
   }, 450);
 
-  if (progressEl) progressEl.textContent = `${_tutorialIndex + 1} / ${TUTORIAL_SLIDES.length}`;
-  if (nextBtn) nextBtn.textContent = '次へ';
+  if (progressEl) progressEl.textContent = _tutorialIsOutro ? '' : `${_tutorialIndex + 1} / ${deck.length}`;
+  if (nextBtn) nextBtn.textContent = _tutorialIsOutro ? '閉じる' : '次へ';
 }
 
 /** 「?」ボタン押下時：常に統合ツアー（導入→データ入力へ遷移→スポットライト案内）を開始する */
@@ -2644,9 +2677,18 @@ function closeSpotlightGuide() {
 }
 
 function spotlightNext() {
-  if (_spotlightIndex >= SPOTLIGHT_STEPS.length - 1) { closeSpotlightGuide(); return; }
+  if (_spotlightIndex >= SPOTLIGHT_STEPS.length - 1) { finishSpotlightAndShowOutro(); return; }
   _spotlightIndex++;
   renderSpotlightStep();
+}
+
+/** スポットライト案内を完了 → ダッシュボードへ戻り、締めのラジオ案内を表示する */
+function finishSpotlightAndShowOutro() {
+  closeSpotlightGuide();
+  setTimeout(() => {
+    navigate('dashboard');
+    openOutroTutorial();
+  }, 320);
 }
 
 function positionSpotlightHole(target, hole) {
