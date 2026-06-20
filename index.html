@@ -498,6 +498,7 @@ textarea.form-input{width:100%;height:56px;resize:none;text-align:left}
 
 <script>
 'use strict';
+const $ = (id) => document.getElementById(id);
 // ============================================================
 // CONFIG — ここを編集してテーマ・銘柄・定数を変更
 // ============================================================
@@ -1130,7 +1131,7 @@ let _watchTooltipVisible = false;
 
 /* ------- POCKET WATCH ------- */
 function renderPocketWatch() {
-  const el = document.getElementById('pocket-watch');
+  const el = $('pocket-watch');
   if (!el) return;
   el.style.display = '';
 
@@ -1153,26 +1154,26 @@ function renderPocketWatch() {
     tooltipText = `最終点検より${freshness.days}日が経過。針も赤に。どうかネジを巻き直しなさいませ`;
   }
 
-  const ttEl = document.getElementById('watch-tooltip-text');
+  const ttEl = $('watch-tooltip-text');
   if (ttEl) ttEl.textContent = tooltipText;
 
   ['watch-hand-h', 'watch-hand-m'].forEach(id => {
-    const e = document.getElementById(id);
+    const e = $(id);
     if (e) e.setAttribute('stroke', handColor);
   });
-  const ctr = document.getElementById('watch-center');
+  const ctr = $('watch-center');
   if (ctr) ctr.setAttribute('fill', handColor);
 
-  const handsGroup = document.getElementById('watch-hands');
+  const handsGroup = $('watch-hands');
   if (handsGroup) handsGroup.style.display = freshness ? '' : 'none';
 }
 
 function showWatchTooltip() {
-  document.getElementById('watch-tooltip').style.display = 'block';
+  $('watch-tooltip').style.display = 'block';
   _watchTooltipVisible = true;
 }
 function hideWatchTooltip() {
-  document.getElementById('watch-tooltip').style.display = 'none';
+  $('watch-tooltip').style.display = 'none';
   _watchTooltipVisible = false;
 }
 function toggleWatchTooltip() {
@@ -1183,9 +1184,9 @@ function toggleWatchTooltip() {
 function navigate(screen) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
-  document.getElementById('screen-' + screen).classList.add('active');
-  document.getElementById('nav-' + screen).classList.add('active');
-  const watchEl = document.getElementById('pocket-watch');
+  $('screen-' + screen).classList.add('active');
+  $('nav-' + screen).classList.add('active');
+  const watchEl = $('pocket-watch');
   if (watchEl) watchEl.style.display = screen === 'dashboard' ? '' : 'none';
   hideWatchTooltip();
   if (screen === 'dashboard') renderDashboard();
@@ -1194,7 +1195,7 @@ function navigate(screen) {
 
 /* ------- SAVE INFO BANNER ------- */
 function updateSaveInfoBanner() {
-  const bannerEl = document.getElementById('save-info-banner');
+  const bannerEl = $('save-info-banner');
   if (!bannerEl) return;
   const meta = getMeta();
   if (meta.lastUpdated && meta.enteredBy === 'user') {
@@ -1211,23 +1212,23 @@ function updateSaveInfoBanner() {
 
 /* ------- MARKET TEMPERATURE ------- */
 function renderMarketTemperature(themeData) {
-  const card = document.getElementById('market-temp-card');
+  const card = $('market-temp-card');
   if (!card) return;
   if (!themeData || themeData.length === 0) { card.style.display = 'none'; return; }
   const avg = Math.round(themeData.reduce((s, td) => s + td.score, 0) / themeData.length);
   const temp = calcMarketTemperature(avg);
   card.style.display = '';
-  document.getElementById('market-temp-label').textContent = temp.label;
-  document.getElementById('market-temp-label').style.color = temp.color;
-  document.getElementById('market-temp-score').textContent = `(平均スコア ${avg})`;
-  document.getElementById('market-temp-bar-fill').style.width      = `${avg}%`;
-  document.getElementById('market-temp-bar-fill').style.background = temp.color;
-  document.getElementById('market-temp-msg').textContent = temp.message;
+  $('market-temp-label').textContent = temp.label;
+  $('market-temp-label').style.color = temp.color;
+  $('market-temp-score').textContent = `(平均スコア ${avg})`;
+  $('market-temp-bar-fill').style.width      = `${avg}%`;
+  $('market-temp-bar-fill').style.background = temp.color;
+  $('market-temp-msg').textContent = temp.message;
   const fillH = Math.round((avg / 100) * 46);
   const fillY = 50 - fillH;
-  const ft = document.getElementById('thermo-fill-tube');
+  const ft = $('thermo-fill-tube');
   if (ft) { ft.setAttribute('y', String(fillY)); ft.setAttribute('height', String(Math.max(0, fillH))); ft.setAttribute('fill', temp.color); }
-  const fb = document.getElementById('thermo-fill-bulb');
+  const fb = $('thermo-fill-bulb');
   if (fb) fb.setAttribute('fill', temp.color);
 }
 
@@ -1238,15 +1239,15 @@ function escapeHtml(s) {
 
 /** 航海日誌セクションの開閉トグル */
 function toggleVoyageLog() {
-  const body = document.getElementById('voyage-log-body');
-  const arrow = document.getElementById('voyage-log-arrow');
+  const body = $('voyage-log-body');
+  const arrow = $('voyage-log-arrow');
   const open = body.classList.toggle('open');
   arrow.classList.toggle('open', open);
 }
 
 function renderVoyageLog() {
   const entries = buildVoyageLogEntries(getWeeks(), getSortedWeekIds());
-  const body = document.getElementById('voyage-log-body');
+  const body = $('voyage-log-body');
   if (entries.length === 0) {
     body.innerHTML = '<p class="voyage-log-empty">お客様、まだ航海の記録がございません</p>';
     return;
@@ -1266,17 +1267,17 @@ function renderDashboard() {
   renderPocketWatch();
   renderVoyageLog();
   if (ids.length === 0) {
-    document.getElementById('empty-state').style.display = 'block';
-    document.getElementById('theme-ranking').innerHTML = '';
-    document.getElementById('ticker-sections').innerHTML = '';
-    document.getElementById('alert-section').style.display = 'none';
-    document.getElementById('memo-banner').style.display = 'none';
-    document.getElementById('climate-banner').style.display = 'none';
-    const mtCard = document.getElementById('market-temp-card');
+    $('empty-state').style.display = 'block';
+    $('theme-ranking').innerHTML = '';
+    $('ticker-sections').innerHTML = '';
+    $('alert-section').style.display = 'none';
+    $('memo-banner').style.display = 'none';
+    $('climate-banner').style.display = 'none';
+    const mtCard = $('market-temp-card');
     if (mtCard) mtCard.style.display = 'none';
     return;
   }
-  document.getElementById('empty-state').style.display = 'none';
+  $('empty-state').style.display = 'none';
 
   const latestId = ids[ids.length - 1];
   const curWeek = weeks[latestId];
@@ -1288,14 +1289,14 @@ function renderDashboard() {
   const climate = curWeek.climate || CONFIG.CLIMATE_DEFAULT;
   const climateOpt = CONFIG.CLIMATE_OPTIONS.find(c => c.id === climate)
     || CONFIG.CLIMATE_OPTIONS.find(c => c.id === CONFIG.CLIMATE_DEFAULT);
-  document.getElementById('climate-banner').style.display = 'block';
-  document.getElementById('climate-text').textContent = climate === 'storm'
+  $('climate-banner').style.display = 'block';
+  $('climate-text').textContent = climate === 'storm'
     ? `${climateOpt.emoji} ${climateOpt.label} — 本日は荒天にございます。地盤の弱きセクターには、いっそうの慎重さを`
     : `${climateOpt.emoji} ${climateOpt.label}`;
 
   // 未来備忘録
-  document.getElementById('memo-banner').style.display = 'block';
-  document.getElementById('memo-text').textContent = curWeek.memo
+  $('memo-banner').style.display = 'block';
+  $('memo-text').textContent = curWeek.memo
     ? curWeek.memo
     : 'お客様、本日の所見はまだ承っておりません';
 
@@ -1356,11 +1357,11 @@ function renderThemeRanking(themeData) {
       </div>
     </div>`;
   }).join('');
-  document.getElementById('theme-ranking').innerHTML = html;
+  $('theme-ranking').innerHTML = html;
 }
 
 function scrollToTheme(themeId) {
-  const el = document.getElementById('theme-section-' + themeId);
+  const el = $('theme-section-' + themeId);
   if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
@@ -1410,10 +1411,10 @@ function renderTickerBoard(latestId, weeks, settings) {
 
   // alert section (blue/purple)
   const alerts = tickerResults.filter(t => t.signal === 'blue' || t.signal === 'purple');
-  const alertSection = document.getElementById('alert-section');
+  const alertSection = $('alert-section');
   if (alerts.length > 0) {
     alertSection.style.display = 'block';
-    document.getElementById('alert-grid').innerHTML = alerts.map(t => tickerCardHTML(t)).join('');
+    $('alert-grid').innerHTML = alerts.map(t => tickerCardHTML(t)).join('');
   } else {
     alertSection.style.display = 'none';
   }
@@ -1432,7 +1433,7 @@ function renderTickerBoard(latestId, weeks, settings) {
       <div class="ticker-grid">${tickers.map(t => tickerCardHTML(t)).join('')}</div>
     </div>`;
   }).join('');
-  document.getElementById('ticker-sections').innerHTML = sectionsHTML;
+  $('ticker-sections').innerHTML = sectionsHTML;
 }
 
 function tickerCardHTML(t) {
@@ -1503,14 +1504,14 @@ function openModal(code) {
   });
   const sm = CONFIG.SIGNAL_META[signal];
 
-  document.getElementById('modal-title').textContent = `${info.name} (${code})`;
+  $('modal-title').textContent = `${info.name} (${code})`;
   const scoreText = climateAdj
     ? `${tickerScore} →（⛈空模様補正 ${climateAdj > 0 ? '+' : ''}${climateAdj}）→ ${finalScore}`
     : `${finalScore}`;
-  document.getElementById('modal-subtitle').textContent =
+  $('modal-subtitle').textContent =
     `${sm.emoji} ${sm.label} | テーマスコア: ${themeScore} | 個別スコア: ${scoreText}`;
 
-  document.getElementById('modal-metrics').innerHTML = [
+  $('modal-metrics').innerHTML = [
     ['RSI', td.rsiOk === false ? '—' : fmt(td.rsi)],
     ['75日線乖離', td.ma75Ok === false ? '—' : fmt(td.ma75Disparity) + '%'],
     ['信用変化', td.creditOk === false ? '—' : (td.creditRatioWeekChange != null ? fmt(td.creditRatioWeekChange) + '%' : '—')],
@@ -1541,7 +1542,7 @@ function openModal(code) {
   });
 
   if (_modalChart) { _modalChart.destroy(); _modalChart = null; }
-  const canvas = document.getElementById('modal-chart');
+  const canvas = $('modal-chart');
   _modalChart = new Chart(canvas, {
     type: 'line',
     data: {
@@ -1563,20 +1564,20 @@ function openModal(code) {
   });
 
   // メモ
-  const memoEl = document.getElementById('modal-memo');
+  const memoEl = $('modal-memo');
   if (curWeek.memo) {
     memoEl.style.display = 'block';
     memoEl.textContent = curWeek.memo;
   } else { memoEl.style.display = 'none'; }
 
-  document.getElementById('modal-overlay').classList.add('open');
+  $('modal-overlay').classList.add('open');
 }
 
 function closeModal(e) {
   // 引数なし = Xボタン押下: 無条件で閉じる
   // 引数あり = overlay クリック: overlay 自体のクリックのみ閉じる（内側のカードは無視）
   if (e && e.target && e.target.id !== 'modal-overlay') return;
-  document.getElementById('modal-overlay').classList.remove('open');
+  $('modal-overlay').classList.remove('open');
 }
 
 /* ------- INPUT SCREEN ------- */
@@ -1599,7 +1600,7 @@ function renderClimateToggles() {
     const activeClass = opt.id === savedClimate ? 'active neutral' : '';
     return `<button class="toggle-btn ${activeClass}" data-climate="${opt.id}" onclick="selectClimate(this)">${opt.emoji} ${opt.label}</button>`;
   }).join('');
-  document.getElementById('climate-toggles').innerHTML = html;
+  $('climate-toggles').innerHTML = html;
 }
 
 function selectClimate(btn) {
@@ -1641,7 +1642,7 @@ function renderThemeToggles() {
     </div>`;
   }).join('<div class="divider"></div>');
 
-  document.getElementById('theme-toggles').innerHTML = html;
+  $('theme-toggles').innerHTML = html;
 }
 
 function selectToggle(btn) {
@@ -1702,11 +1703,11 @@ function renderTickerAdjustments() {
     </div>`;
   }).join('');
 
-  document.getElementById('ticker-adjustments').innerHTML = html;
+  $('ticker-adjustments').innerHTML = html;
 
   // 前週のメモをプリフィル（サンプルデータのみ時はクリア）
   const prevMemo = effectivePrev?.memo || '';
-  document.getElementById('input-memo').value = prevMemo;
+  $('input-memo').value = prevMemo;
 }
 
 function saveEarningsDate(code, val) {
@@ -1746,7 +1747,7 @@ function renderAcquiredPrices() {
         onchange="saveAcquiredPrice('${code}', this.value)">
     </div>`;
   }).join('');
-  document.getElementById('acquired-prices').innerHTML = html;
+  $('acquired-prices').innerHTML = html;
 }
 
 function saveAcquiredPrice(code, val) {
@@ -1759,13 +1760,13 @@ function saveAcquiredPrice(code, val) {
 }
 
 function updateSaveBtn() {
-  document.getElementById('save-btn').disabled = false;
+  $('save-btn').disabled = false;
 }
 
 /* ------- CSV HANDLING ------- */
 function handleFileDrop(e) {
   e.preventDefault();
-  document.getElementById('drop-zone').classList.remove('dragover');
+  $('drop-zone').classList.remove('dragover');
   const files = e.dataTransfer?.files;
   if (files?.length) processCSVFiles(files);
 }
@@ -1777,8 +1778,8 @@ function handleFileSelect(e) {
 }
 
 async function processCSVFiles(fileList) {
-  const statusEl = document.getElementById('csv-status');
-  const previewEl = document.getElementById('csv-preview');
+  const statusEl = $('csv-status');
+  const previewEl = $('csv-preview');
   const files = Array.from(fileList).filter(f => f.name.toLowerCase().endsWith('.csv'));
   if (!files.length) return;
 
@@ -1920,12 +1921,12 @@ function saveWeekData() {
     };
   });
 
-  const memo = document.getElementById('input-memo').value.trim();
+  const memo = $('input-memo').value.trim();
   const activeClimate = document.querySelector('.toggle-btn.active[data-climate]');
   const climate = activeClimate?.dataset.climate || CONFIG.CLIMATE_DEFAULT;
 
   const ok = saveWeek(weekId, { themes, tickers, memo, climate });
-  const statusEl = document.getElementById('save-status');
+  const statusEl = $('save-status');
   if (ok) {
     const now = new Date();
     const ts = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
@@ -1959,7 +1960,7 @@ function validateBackupJSON(obj) {
 }
 
 function showBackupStatus(msg, type) {
-  const el = document.getElementById('backup-status');
+  const el = $('backup-status');
   if (!el) return;
   el.style.display = 'block';
   el.style.color = type === 'red' ? 'var(--red)' : 'var(--green)';
@@ -2094,10 +2095,10 @@ function injectSampleData() {
 // ============================================================
 
 function runTests() {
-  document.getElementById('test-panel').style.display = 'block';
-  document.getElementById('screen-dashboard').style.display = 'none';
-  document.getElementById('screen-input').style.display = 'none';
-  document.getElementById('nav').style.display = 'none';
+  $('test-panel').style.display = 'block';
+  $('screen-dashboard').style.display = 'none';
+  $('screen-input').style.display = 'none';
+  $('nav').style.display = 'none';
 
   const results = [];
   function assert(name, cond, detail = '') {
@@ -2433,18 +2434,18 @@ function runTests() {
     `<div class="test-summary ${fail===0?'test-pass':'test-fail'}">
       ${fail===0?'✅ 全テスト通過':'❌ 失敗'}: ${pass}/${pass+fail}件
     </div>`;
-  document.getElementById('test-panel').innerHTML = html;
+  $('test-panel').innerHTML = html;
 }
 
 // ============================================================
 // 起動アニメーション（オープニング）
 // ============================================================
 function startOpeningSequence() {
-  const overlay = document.getElementById('opening-overlay');
-  const videoWrap = document.getElementById('opening-video-wrap');
-  const video = document.getElementById('opening-video');
-  const helloEl = document.getElementById('opening-text-hello');
-  const tapEl = document.getElementById('opening-text-tap');
+  const overlay = $('opening-overlay');
+  const videoWrap = $('opening-video-wrap');
+  const video = $('opening-video');
+  const helloEl = $('opening-text-hello');
+  const tapEl = $('opening-text-tap');
   if (!overlay || !videoWrap || !video) return;
 
   let introStarted = false;
@@ -2514,11 +2515,11 @@ function maybeAutoShowTutorial() {
 }
 
 function openTutorial() {
-  const overlay = document.getElementById('tutorial-overlay');
+  const overlay = $('tutorial-overlay');
   if (!overlay) return;
   _tutorialIsOutro = false;
   _tutorialIndex = 0;
-  const radio = document.getElementById('tutorial-radio');
+  const radio = $('tutorial-radio');
   if (radio) radio.classList.remove('outro-fade');
   overlay.style.display = 'flex';
   requestAnimationFrame(() => overlay.classList.add('open'));
@@ -2527,11 +2528,11 @@ function openTutorial() {
 
 /** 締めパート（ラジオが中央で喋る最後の1枚）を表示する */
 function openOutroTutorial() {
-  const overlay = document.getElementById('tutorial-overlay');
+  const overlay = $('tutorial-overlay');
   if (!overlay) return;
   _tutorialIsOutro = true;
   _tutorialIndex = 0;
-  const radio = document.getElementById('tutorial-radio');
+  const radio = $('tutorial-radio');
   if (radio) radio.classList.remove('outro-fade');
   overlay.style.display = 'flex';
   requestAnimationFrame(() => overlay.classList.add('open'));
@@ -2540,7 +2541,7 @@ function openOutroTutorial() {
 
 /** 導入/締めパートを閉じる（途中スキップ含む）。フラグを立てて以後の自動表示を止める */
 function closeTutorial() {
-  const overlay = document.getElementById('tutorial-overlay');
+  const overlay = $('tutorial-overlay');
   if (!overlay) return;
   lsSet(CONFIG.LS_TUTORIAL_SEEN, true);
   overlay.classList.remove('open');
@@ -2561,7 +2562,7 @@ function tutorialNext() {
 /** 導入パート終了 → データ入力画面へ遷移 → スポットライト案内を開始 */
 function finishIntroAndStartSpotlight() {
   lsSet(CONFIG.LS_TUTORIAL_SEEN, true);
-  const overlay = document.getElementById('tutorial-overlay');
+  const overlay = $('tutorial-overlay');
   if (overlay) {
     overlay.classList.remove('open');
     setTimeout(() => { overlay.style.display = 'none'; }, 500);
@@ -2574,12 +2575,12 @@ function renderTutorialSlide() {
   const deck = _tutorialIsOutro ? OUTRO_SLIDES : TUTORIAL_SLIDES;
   const slide = deck[_tutorialIndex];
   if (!slide) return;
-  const radio = document.getElementById('tutorial-radio');
-  const sparkLines = document.getElementById('tutorial-spark-lines');
-  const sfxEl = document.getElementById('tutorial-sfx');
-  const textEl = document.getElementById('tutorial-text');
-  const progressEl = document.getElementById('tutorial-progress');
-  const nextBtn = document.getElementById('tutorial-next-btn');
+  const radio = $('tutorial-radio');
+  const sparkLines = $('tutorial-spark-lines');
+  const sfxEl = $('tutorial-sfx');
+  const textEl = $('tutorial-text');
+  const progressEl = $('tutorial-progress');
+  const nextBtn = $('tutorial-next-btn');
 
   if (sfxEl) sfxEl.textContent = '';
   if (textEl) textEl.textContent = '';
@@ -2656,7 +2657,7 @@ function calcSpotlightHoleRect(rect, padding = 14) {
 }
 
 function openSpotlightGuide() {
-  const overlay = document.getElementById('spotlight-overlay');
+  const overlay = $('spotlight-overlay');
   if (!overlay) return;
   _spotlightIndex = 0;
   overlay.style.display = 'block';
@@ -2665,7 +2666,7 @@ function openSpotlightGuide() {
 }
 
 function closeSpotlightGuide() {
-  const overlay = document.getElementById('spotlight-overlay');
+  const overlay = $('spotlight-overlay');
   if (!overlay) return;
   _spotlightRenderGen++;
   overlay.classList.remove('open');
@@ -2717,12 +2718,12 @@ function positionSpotlightCallout(hole, callout) {
 }
 
 function repositionSpotlight() {
-  const overlay = document.getElementById('spotlight-overlay');
+  const overlay = $('spotlight-overlay');
   if (!overlay || overlay.style.display === 'none') return;
   const step = SPOTLIGHT_STEPS[_spotlightIndex];
   const target = step && document.querySelector(step.selector);
-  const hole = document.getElementById('spotlight-hole');
-  const callout = document.getElementById('spotlight-callout');
+  const hole = $('spotlight-hole');
+  const callout = $('spotlight-callout');
   if (!target || !hole || !callout) return;
   positionSpotlightHole(target, hole);
   positionSpotlightCallout(hole, callout);
@@ -2730,14 +2731,14 @@ function repositionSpotlight() {
 
 function renderSpotlightStep() {
   const step = SPOTLIGHT_STEPS[_spotlightIndex];
-  const overlay = document.getElementById('spotlight-overlay');
-  const hole = document.getElementById('spotlight-hole');
-  const callout = document.getElementById('spotlight-callout');
-  const textEl = document.getElementById('spotlight-text');
-  const progressEl = document.getElementById('spotlight-progress');
-  const nextBtn = document.getElementById('spotlight-next-btn');
-  const radio = document.getElementById('spotlight-radio');
-  const sparkLines = document.getElementById('spotlight-spark-lines');
+  const overlay = $('spotlight-overlay');
+  const hole = $('spotlight-hole');
+  const callout = $('spotlight-callout');
+  const textEl = $('spotlight-text');
+  const progressEl = $('spotlight-progress');
+  const nextBtn = $('spotlight-next-btn');
+  const radio = $('spotlight-radio');
+  const sparkLines = $('spotlight-spark-lines');
   if (!step || !overlay || !hole || !callout) return;
 
   const target = document.querySelector(step.selector);
@@ -2777,8 +2778,8 @@ function renderSpotlightStep() {
 // ============================================================
 document.addEventListener('DOMContentLoaded', () => {
   if (new URLSearchParams(location.search).get('test') === '1') {
-    document.getElementById('opening-overlay')?.remove();
-    document.getElementById('opening-video-wrap')?.remove();
+    $('opening-overlay')?.remove();
+    $('opening-video-wrap')?.remove();
     runTests();
     return;
   }
