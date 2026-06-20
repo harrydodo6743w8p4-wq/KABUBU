@@ -1488,23 +1488,8 @@ function tickerCardHTML(t) {
 }
 
 /* ------- MODAL ------- */
-function openModal(code) {
-  const weeks = getWeeks();
-  const ids = getSortedWeekIds();
-  if (ids.length === 0) return;
-  const latestId = ids[ids.length - 1];
-  const curWeek = weeks[latestId];
-  const prevId = ids.length > 1 ? ids[ids.length - 2] : null;
-  const prevWeek = prevId ? weeks[prevId] : null;
-  const td = curWeek.tickers?.[code] || {};
-  const prevTd = prevWeek ? (prevWeek.tickers?.[code] || {}) : null;
-  const info = CONFIG.TICKERS[code];
-  const settings = getSettings();
-  const themeData = computeThemeData(curWeek, null);
-  const themeScore = themeData.find(t => t.theme.id === info.theme)?.score || 0;
-  const climate = curWeek.climate || CONFIG.CLIMATE_DEFAULT;
-  const { tickerScore, groundValue, climateAdj, finalScore, signal } =
-    computeTickerResult(code, info, td, prevTd, themeScore, climate, settings);
+/** モーダルの数値・テキスト表示（チャート以外）を更新する */
+function renderModalDetails(code, info, td, curWeek, themeScore, tickerScore, climateAdj, finalScore, signal) {
   const sm = CONFIG.SIGNAL_META[signal];
 
   $('modal-title').textContent = `${info.name} (${code})`;
@@ -1523,7 +1508,16 @@ function openModal(code) {
     ['コンセンサス', td.consensus || '—'],
   ].map(([l, v]) => `<div class="metric-box"><label>${l}</label><value>${v}</value></div>`).join('');
 
-  // 過去12週のスコア推移チャート
+  // メモ
+  const memoEl = $('modal-memo');
+  if (curWeek.memo) {
+    memoEl.style.display = 'block';
+    memoEl.textContent = curWeek.memo;
+  } else { memoEl.style.display = 'none'; }
+}
+
+/** 過去12週のスコア・RSI推移チャートを描画する */
+function renderModalChart(code, ids, weeks, groundValue) {
   const hist = ids.slice(-12);
   const labels = hist.map(id => id.slice(5)); // MM-DD
   const scoreHist = hist.map(id => {
@@ -1565,13 +1559,28 @@ function openModal(code) {
       },
     },
   });
+}
 
-  // メモ
-  const memoEl = $('modal-memo');
-  if (curWeek.memo) {
-    memoEl.style.display = 'block';
-    memoEl.textContent = curWeek.memo;
-  } else { memoEl.style.display = 'none'; }
+function openModal(code) {
+  const weeks = getWeeks();
+  const ids = getSortedWeekIds();
+  if (ids.length === 0) return;
+  const latestId = ids[ids.length - 1];
+  const curWeek = weeks[latestId];
+  const prevId = ids.length > 1 ? ids[ids.length - 2] : null;
+  const prevWeek = prevId ? weeks[prevId] : null;
+  const td = curWeek.tickers?.[code] || {};
+  const prevTd = prevWeek ? (prevWeek.tickers?.[code] || {}) : null;
+  const info = CONFIG.TICKERS[code];
+  const settings = getSettings();
+  const themeData = computeThemeData(curWeek, null);
+  const themeScore = themeData.find(t => t.theme.id === info.theme)?.score || 0;
+  const climate = curWeek.climate || CONFIG.CLIMATE_DEFAULT;
+  const { tickerScore, groundValue, climateAdj, finalScore, signal } =
+    computeTickerResult(code, info, td, prevTd, themeScore, climate, settings);
+
+  renderModalDetails(code, info, td, curWeek, themeScore, tickerScore, climateAdj, finalScore, signal);
+  renderModalChart(code, ids, weeks, groundValue);
 
   $('modal-overlay').classList.add('open');
 }
