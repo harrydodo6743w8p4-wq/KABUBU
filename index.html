@@ -724,7 +724,6 @@ function calcTickerScore(m) {
   let finalScore = rsiScore + dispScore + creditScore + earningsScore;
   if (dte != null && dte <= 7) finalScore -= 20;
   const rsiDeltaAdj = calcRsiDeltaAdj(m.rsi, m.rsiDelta ?? null);
-  if (rsiDeltaAdj !== 0) console.debug(`[ΔRSI adj] ${m.rsiDelta >= 0 ? '+' : ''}${m.rsiDelta} → ${rsiDeltaAdj}点`);
   return Math.max(0, Math.min(100, finalScore + rsiDeltaAdj));
 }
 
