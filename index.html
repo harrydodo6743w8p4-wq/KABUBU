@@ -1780,15 +1780,8 @@ function handleFileSelect(e) {
   e.target.value = '';
 }
 
-async function processCSVFiles(fileList) {
-  const statusEl = $('csv-status');
-  const previewEl = $('csv-preview');
-  const files = Array.from(fileList).filter(f => f.name.toLowerCase().endsWith('.csv'));
-  if (!files.length) return;
-
-  statusEl.textContent = `解析中... (0/${files.length})`;
-  previewEl.innerHTML = '';
-
+/** 複数CSVファイルを順に読込・解析し、_csvIndicators / _currentWeekId を更新する（進捗をstatusElに表示） */
+async function loadAndParseCSVFiles(files, statusEl) {
   const fileErrors = [];  // [{name, errors:[{line,reason}]}]
   const fatalErrors = []; // [{name, message}]
   let processedCount = 0;
@@ -1828,10 +1821,13 @@ async function processCSVFiles(fileList) {
     }
   }
 
-  // プレビュー表示
+  return { processedCount, fileErrors, fatalErrors };
+}
+
+/** 解析済みの _csvIndicators とエラー一覧から、CSVプレビュー欄のHTMLを生成する */
+function buildCsvPreviewHTML(processedCount, totalFiles, fileErrors, fatalErrors) {
   const codes = Object.keys(_csvIndicators);
-  const loadedCount = codes.length;
-  let previewHTML = `<div style="margin-top:8px;font-size:12px;color:var(--green)">解析完了: ${processedCount}/${files.length}ファイル (週ID: ${_currentWeekId || '—'})</div>`;
+  let previewHTML = `<div style="margin-top:8px;font-size:12px;color:var(--green)">解析完了: ${processedCount}/${totalFiles}ファイル (週ID: ${_currentWeekId || '—'})</div>`;
   previewHTML += `<table class="csv-preview-table"><thead><tr>
     <th>銘柄</th><th>終値</th><th>RSI</th><th>乖離%</th><th>信用倍率</th><th>信用変化%</th>
   </tr></thead><tbody>`;
@@ -1857,8 +1853,23 @@ async function processCSVFiles(fileList) {
   if (fatalErrors.length > 0) {
     previewHTML += `<ul class="csv-error-list">${fatalErrors.map(fe => `<li>${fe.name}: ${fe.message}</li>`).join('')}</ul>`;
   }
-  previewEl.innerHTML = previewHTML;
+  return previewHTML;
+}
 
+async function processCSVFiles(fileList) {
+  const statusEl = $('csv-status');
+  const previewEl = $('csv-preview');
+  const files = Array.from(fileList).filter(f => f.name.toLowerCase().endsWith('.csv'));
+  if (!files.length) return;
+
+  statusEl.textContent = `解析中... (0/${files.length})`;
+  previewEl.innerHTML = '';
+
+  const { processedCount, fileErrors, fatalErrors } = await loadAndParseCSVFiles(files, statusEl);
+
+  previewEl.innerHTML = buildCsvPreviewHTML(processedCount, files.length, fileErrors, fatalErrors);
+
+  const loadedCount = Object.keys(_csvIndicators).length;
   const fileLabel = files.length === 1 ? files[0].name : `${files.length}ファイル`;
   const statusText = `${fileLabel} (計${loadedCount}銘柄読み込み済み)`;
   if (fatalErrors.length > 0) {
