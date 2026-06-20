@@ -547,11 +547,11 @@ const CONFIG = {
   CLIMATE_DEFAULT: 'cloudy',
   // 地盤: テーマ別の暴落耐性（1=弱い〜5=強い、後で調整しやすいようCONFIG化）
   GROUND: {
-    'AI・半導体': 1,
-    'AIインフラ・電力再建': 4,
-    '金利正常化・金融': 5,
-    '国策・防衛・宇宙': 3,
-    'エンタメ・製品サイクル': 4,
+    ai_semi: 1,
+    ai_infra: 4,
+    finance: 5,
+    defense: 3,
+    entertain: 4,
   },
   // 嵐のときのみ作動する、地盤値→個別スコア補正テーブル（地盤3を中立点とする控えめ設定）
   STORM_ADJ_BY_GROUND: { 1: -14, 2: -9, 3: 0, 4: 2, 5: 6 },
@@ -750,9 +750,7 @@ function classifySignal(ctx) {
 
 /** テーマIDから「地盤」(暴落耐性)値を取得。未定義は null */
 function getGroundValue(themeId) {
-  const theme = CONFIG.THEMES.find(t => t.id === themeId);
-  if (!theme) return null;
-  const v = CONFIG.GROUND[theme.name];
+  const v = CONFIG.GROUND[themeId];
   return v != null ? v : null;
 }
 
