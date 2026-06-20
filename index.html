@@ -768,6 +768,42 @@ function applyClimateAdj(tickerScore, climateAdj) {
   return Math.max(0, Math.min(100, tickerScore + climateAdj));
 }
 
+/**
+ * 銘柄1件の指標・スコア・シグナルをまとめて算出する（純粋関数・テスト可能）
+ * ダッシュボードのティッカーカードとモーダルの両方から呼ばれる共通処理。
+ * @param {string} code 銘柄コード
+ * @param {{theme:string}} info CONFIG.TICKERS[code]
+ * @param {object} td 当該週の銘柄データ
+ * @param {object|null} prevTd 前週の銘柄データ（ΔRSI算出用、無ければnull）
+ * @param {number} themeScore 所属テーマのスコア
+ * @param {string} climate 本日の空模様
+ * @param {{userAcquiredPrices?:object}} settings
+ */
+function computeTickerResult(code, info, td, prevTd, themeScore, climate, settings) {
+  const rsiDelta = calcRsiDelta(td.rsi ?? null, prevTd?.rsi ?? null);
+  const metrics = {
+    rsi: td.rsi ?? null,
+    ma75Disparity: td.ma75Disparity ?? null,
+    creditRatioWeekChange: td.creditRatioWeekChange ?? null,
+    daysToEarnings: td.daysToEarnings ?? null,
+    rsiDelta,
+  };
+  const tickerScore = calcTickerScore(metrics);
+  const groundValue = getGroundValue(info.theme);
+  const climateAdj = calcClimateAdj(climate, groundValue);
+  const finalScore = applyClimateAdj(tickerScore, climateAdj);
+  const signal = classifySignal({
+    tickerScore: finalScore, themeScore,
+    rsi: td.rsi ?? null,
+    ma75Disparity: td.ma75Disparity ?? null,
+    consensus: td.consensus || '据置',
+    acquiredPrice: settings.userAcquiredPrices?.[code] ?? null,
+    currentClose: td.close ?? null,
+    rsiDelta,
+  });
+  return { code, info, td, themeScore, tickerScore, groundValue, climateAdj, finalScore, signal, metrics, rsiDelta };
+}
+
 /** 理由テキスト自動生成 (red シグナル用) */
 function buildRedReason(code, themeId, rsi, ma75Disparity) {
   const themeName = CONFIG.THEMES.find(t => t.id === themeId)?.name || themeId;
@@ -1385,28 +1421,7 @@ function renderTickerBoard(latestId, weeks, settings) {
     const td = curWeek.tickers?.[code] || {};
     const prevTd = prevWeek ? (prevWeek.tickers?.[code] || {}) : null;
     const themeScore = themeScores[info.theme] || 0;
-    const rsiDelta = calcRsiDelta(td.rsi ?? null, prevTd?.rsi ?? null);
-    const metrics = {
-      rsi: td.rsi ?? null,
-      ma75Disparity: td.ma75Disparity ?? null,
-      creditRatioWeekChange: td.creditRatioWeekChange ?? null,
-      daysToEarnings: td.daysToEarnings ?? null,
-      rsiDelta,
-    };
-    const tickerScore = calcTickerScore(metrics);
-    const groundValue = getGroundValue(info.theme);
-    const climateAdj = calcClimateAdj(climate, groundValue);
-    const finalScore = applyClimateAdj(tickerScore, climateAdj);
-    const signal = classifySignal({
-      tickerScore: finalScore, themeScore,
-      rsi: td.rsi ?? null,
-      ma75Disparity: td.ma75Disparity ?? null,
-      consensus: td.consensus || '据置',
-      acquiredPrice: settings.userAcquiredPrices?.[code] ?? null,
-      currentClose: td.close ?? null,
-      rsiDelta,
-    });
-    tickerResults.push({ code, info, td, themeScore, tickerScore, climateAdj, finalScore, signal, metrics, rsiDelta });
+    tickerResults.push(computeTickerResult(code, info, td, prevTd, themeScore, climate, settings));
   });
 
   // alert section (blue/purple)
@@ -1479,29 +1494,17 @@ function openModal(code) {
   if (ids.length === 0) return;
   const latestId = ids[ids.length - 1];
   const curWeek = weeks[latestId];
+  const prevId = ids.length > 1 ? ids[ids.length - 2] : null;
+  const prevWeek = prevId ? weeks[prevId] : null;
   const td = curWeek.tickers?.[code] || {};
+  const prevTd = prevWeek ? (prevWeek.tickers?.[code] || {}) : null;
   const info = CONFIG.TICKERS[code];
   const settings = getSettings();
   const themeData = computeThemeData(curWeek, null);
   const themeScore = themeData.find(t => t.theme.id === info.theme)?.score || 0;
-  const metrics = {
-    rsi: td.rsi ?? null,
-    ma75Disparity: td.ma75Disparity ?? null,
-    creditRatioWeekChange: td.creditRatioWeekChange ?? null,
-    daysToEarnings: td.daysToEarnings ?? null,
-  };
-  const tickerScore = calcTickerScore(metrics);
   const climate = curWeek.climate || CONFIG.CLIMATE_DEFAULT;
-  const groundValue = getGroundValue(info.theme);
-  const climateAdj = calcClimateAdj(climate, groundValue);
-  const finalScore = applyClimateAdj(tickerScore, climateAdj);
-  const signal = classifySignal({
-    tickerScore: finalScore, themeScore,
-    rsi: td.rsi ?? null, ma75Disparity: td.ma75Disparity ?? null,
-    consensus: td.consensus || '据置',
-    acquiredPrice: settings.userAcquiredPrices?.[code] ?? null,
-    currentClose: td.close ?? null,
-  });
+  const { tickerScore, groundValue, climateAdj, finalScore, signal } =
+    computeTickerResult(code, info, td, prevTd, themeScore, climate, settings);
   const sm = CONFIG.SIGNAL_META[signal];
 
   $('modal-title').textContent = `${info.name} (${code})`;
@@ -2189,6 +2192,31 @@ function runTests() {
   assert('signal yellow', classifySignal({ tickerScore:68, themeScore:65, rsi:40, ma75Disparity:-10, consensus:'据置', acquiredPrice:null, currentClose:null }) === 'yellow');
   // white
   assert('signal white', classifySignal({ tickerScore:30, themeScore:30, rsi:60, ma75Disparity:5, consensus:'据置', acquiredPrice:null, currentClose:null }) === 'white');
+
+  // --- Test 7b: computeTickerResult（カード/モーダルで重複していたスコア・シグナル算出の統合先） ---
+  {
+    const info = CONFIG.TICKERS['8035']; // ai_semi（地盤値1）
+    const td = { rsi: 30, ma75Disparity: -20, creditRatioWeekChange: -15, daysToEarnings: 20, consensus: '据置', close: 100 };
+    const prevTd = { rsi: 30 }; // ΔRSIなし
+    const settings = { userAcquiredPrices: {} };
+    const r = computeTickerResult('8035', info, td, prevTd, 80, 'storm', settings);
+    assert('computeTickerResult tickerScore', r.tickerScore === 100, `got ${r.tickerScore}`);
+    assert('computeTickerResult groundValue', r.groundValue === 1, `got ${r.groundValue}`);
+    assert('computeTickerResult climateAdj(嵐×地盤1)', r.climateAdj === -14, `got ${r.climateAdj}`);
+    assert('computeTickerResult finalScore(地盤補正後)', r.finalScore === 86, `got ${r.finalScore}`);
+    assert('computeTickerResult signal red', r.signal === 'red', `got ${r.signal}`);
+    assert('computeTickerResult rsiDelta(変化なし)', r.rsiDelta === 0, `got ${r.rsiDelta}`);
+  }
+  {
+    // ΔRSI急騰(前週比+15以上 かつ RSI70以上)によるblueが、prevTdから正しく伝播することの確認
+    const info = CONFIG.TICKERS['8035'];
+    const td = { rsi: 72, ma75Disparity: 5, creditRatioWeekChange: 0, daysToEarnings: 30, consensus: '据置', close: 100 };
+    const prevTd = { rsi: 55 };
+    const settings = { userAcquiredPrices: {} };
+    const r = computeTickerResult('8035', info, td, prevTd, 50, 'cloudy', settings);
+    assert('computeTickerResult rsiDeltaがprevTdから算出される', r.rsiDelta === 17, `got ${r.rsiDelta}`);
+    assert('computeTickerResult ΔRSI急騰→blue', r.signal === 'blue', `got ${r.signal}`);
+  }
 
   // --- Test 8: getWeekId ---
   // 2026-06-12 = Friday, 2026-06-13 = Saturday, 2026-06-14 = Sunday, 2026-06-15 = Monday
