@@ -977,6 +977,8 @@ function parseCSVText(text) {
   const idxDate   = headers.findIndex(h => h.includes('日付'));
   const idxClose  = headers.findIndex(h => h.includes('終値'));
   const idxVol    = headers.findIndex(h => h.includes('出来高'));
+  // 75DMA — 楽天日足CSVに含まれる事前計算済み75日移動平均列
+  const idx75DMA  = headers.findIndex(h => h.trim() === '75DMA');
   // 信用倍率 — 列名を複数パターンで検出（楽天証券CSV: 融資残高/貸株残高/貸借倍率）
   const idxBuy    = headers.findIndex(h => h.includes('信用買残'));
   const idxSell   = headers.findIndex(h => h.includes('信用売残'));
@@ -1007,6 +1009,11 @@ function parseCSVText(text) {
       continue;
     }
     const row = { date, close };
+    // 75DMA — 楽天日足CSVの事前計算値があれば格納
+    if (idx75DMA >= 0) {
+      const ma75Val = parseNum(cols[idx75DMA] || '');
+      if (!isNaN(ma75Val) && ma75Val > 0) row.ma75 = ma75Val;
+    }
     // 信用倍率 — 空でも行を捨てない（タイムラグ考慮: 最新の有効値を後で採用）
     // 優先順位: 信用買残/売残 → 貸借倍率(既計算値) → 融資残高/貸株残高(範囲検証付き)
     // 楽天CSVは融資/貸株が異なる単位の場合があるため貸借倍率を優先し、>100は異常値として除外
@@ -1048,9 +1055,16 @@ function computeIndicators(rows, prevCreditRatio) {
   const rsiOk = n >= CONFIG.RSI_PERIOD + 1;
   const rsi = rsiOk ? calcRSI(closes) : null;
 
-  const ma75Ok = n >= CONFIG.MA_PERIOD;
-  const ma75 = ma75Ok ? calcSMA(closes, CONFIG.MA_PERIOD) : null;
   const latestClose = closes[n - 1];
+  // CSVに事前計算済みの75DMAがあれば最終行の値を優先、なければ終値からSMAを算出
+  let ma75, ma75Ok;
+  if (rows[n - 1].ma75 != null) {
+    ma75 = rows[n - 1].ma75;
+    ma75Ok = true;
+  } else {
+    ma75Ok = n >= CONFIG.MA_PERIOD;
+    ma75 = ma75Ok ? calcSMA(closes, CONFIG.MA_PERIOD) : null;
+  }
   const ma75Disparity = (ma75Ok && ma75) ? calcDisparity(latestClose, ma75) : null;
 
   // 最新と直前の信用倍率をCSV内から取得（週次比較はCSV内完結を優先、不足時はlocalStorage前週値）
@@ -1892,8 +1906,8 @@ async function processCSVFiles(fileList) {
 }
 
 function detectCodeFromFileName(name) {
-  // ファイル名から銘柄コード（4桁数字）を検出
-  const m = name.match(/(\d{4})/);
+  // 楽天証券CSVのファイル名形式: 624(日付)+8035(銘柄コード).csv → 末尾4桁を銘柄コードとして取得
+  const m = name.match(/(\d{4})\.csv$/i);
   if (m && CONFIG.TICKERS[m[1]]) return m[1];
   return null;
 }
